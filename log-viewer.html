@@ -183,6 +183,15 @@
         .modal-exception { background: #2d1f1f; color: #f87171; padding: 15px; border-radius: 8px; font-family: monospace; font-size: 13px; white-space: pre-wrap; word-wrap: break-word; max-height: 300px; overflow-y: auto; border-left: 4px solid #f87171; }
         body.theme-light .modal-exception { background: #fff5f5; color: #dc3545; border-left-color: #dc3545; }
         body.theme-blue .modal-exception { background: #1c1e26; color: #f85149; border-left-color: #f85149; }
+        .file-list { margin-top: 15px; padding: 15px; border-radius: 8px; }
+        body.theme-dark .file-list { background: rgba(0, 0, 0, 0.2); }
+        body.theme-light .file-list { background: #f8f9fa; }
+        body.theme-blue .file-list { background: rgba(0, 0, 0, 0.3); }
+        .file-item { display: flex; align-items: center; padding: 8px; margin-bottom: 6px; border-radius: 6px; transition: all 0.3s; }
+        .file-item:hover { background: rgba(0, 122, 204, 0.1); }
+        .file-icon { margin-right: 10px; font-size: 16px; }
+        .pagination.hidden { display: none; }
+        #modalExceptionSection.hidden { display: none; }
         .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
         .reports-modal .modal-content { max-width: 1100px; }
         .report-section { margin-bottom: 30px; }
@@ -239,13 +248,13 @@
                 </div>
                 <div class="controls-row">
                     <div class="date-filter">
-                        <label>From:</label>
-                        <input type="datetime-local" id="dateFrom" class="date-input">
-                        <label>To:</label>
-                        <input type="datetime-local" id="dateTo" class="date-input">
+                        <label for="dateFrom">From:</label>
+                        <input type="datetime-local" id="dateFrom" class="date-input" title="Filter logs from this date/time">
+                        <label for="dateTo">To:</label>
+                        <input type="datetime-local" id="dateTo" class="date-input" title="Filter logs until this date/time">
                         <button class="btn btn-secondary" id="clearDateBtn">Clear</button>
                     </div>
-                    <select id="pageSize" class="date-input">
+                    <select id="pageSize" class="date-input" title="Number of logs per page">
                         <option value="50">50/page</option>
                         <option value="100" selected>100/page</option>
                         <option value="200">200/page</option>
@@ -265,6 +274,7 @@
                 <div class="stats-card"><div class="stat-label">Warnings</div><div class="stat-value" id="warningCount">0</div></div>
                 <div class="stats-card"><div class="stat-label">Errors</div><div class="stat-value" id="errorCount">0</div></div>
             </div>
+            <div id="fileList" class="file-list"></div>
         </div>
         <div class="log-container" id="logContainer">
             <div class="empty-state">
@@ -273,7 +283,7 @@
                 <p>Load log files to get started</p>
             </div>
         </div>
-        <div class="pagination" id="pagination" style="display: none;">
+        <div class="pagination hidden" id="pagination">
             <button id="firstBtn">First</button>
             <button id="prevBtn">Prev</button>
             <span id="pageInfo">Page 1</span>
@@ -318,7 +328,7 @@
                 <div class="modal-section-title">Message</div>
                 <div class="modal-section-content" id="modalMessage"></div>
             </div>
-            <div class="modal-section" id="modalExceptionSection" style="display: none;">
+            <div class="modal-section hidden" id="modalExceptionSection">
                 <div class="modal-section-title">Exception / Stack Trace</div>
                 <div class="modal-exception" id="modalException"></div>
             </div>
@@ -351,6 +361,7 @@ class LogViewer {
         this.dateFrom = null;
         this.dateTo = null;
         this.loadedFiles = 0;
+        this.loadedFileNames = [];
         this.currentPage = 1;
         this.logsPerPage = 100;
         this.currentModalLog = null;
@@ -419,6 +430,7 @@ class LogViewer {
         }, 0);
         
         this.loadedFiles = files.length;
+        this.loadedFileNames = files.map(f => f.name);
         let loaded = 0;
         const contents = [];
         
@@ -773,12 +785,22 @@ class LogViewer {
     updateStats() {
         const counts = { debug: 0, information: 0, warning: 0, error: 0 };
         this.logs.forEach(log => counts[log.level]++);
+        
+        // Update stats
         document.getElementById('fileCount').textContent = this.loadedFiles;
         document.getElementById('totalCount').textContent = this.logs.length;
         document.getElementById('debugCount').textContent = counts.debug;
         document.getElementById('infoCount').textContent = counts.information;
         document.getElementById('warningCount').textContent = counts.warning;
         document.getElementById('errorCount').textContent = counts.error;
+
+        // Update file names list
+        const fileList = document.getElementById('fileList');
+        if (fileList) {
+            fileList.innerHTML = this.loadedFileNames.map(name => 
+                `<div class="file-item"><span class="file-icon">📄</span>${this.escape(name)}</div>`
+            ).join('');
+        }
     }
     clear() {
         if (!confirm('Clear all logs?')) return;
