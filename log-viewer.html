@@ -1,226 +1,1315 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Serilog Log Viewer Pro</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; height: 100vh; overflow: hidden; transition: background 0.3s, color 0.3s; }
-        body.theme-dark { background: #1e1e1e; color: #e0e0e0; }
-        body.theme-light { background: #ffffff; color: #333333; }
-        body.theme-blue { background: #0d1117; color: #c9d1d9; }
-        .container { display: flex; flex-direction: column; height: 100vh; }
-        .header { padding: 12px 15px; border-bottom: 2px solid #007acc; }
-        body.theme-dark .header { background: #252526; }
-        body.theme-light .header { background: #f5f5f5; border-bottom-color: #0066cc; }
-        body.theme-blue .header { background: #161b22; border-bottom-color: #58a6ff; }
-        .header h1 { font-size: 16px; color: #007acc; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
-        .theme-toggle { display: flex; gap: 4px; }
-        .theme-btn { width: 24px; height: 24px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; transition: all 0.3s; }
-        .theme-btn.active { border-color: #007acc; box-shadow: 0 0 8px rgba(0, 122, 204, 0.5); }
-        .theme-btn.dark { background: #1e1e1e; }
-        .theme-btn.light { background: #ffffff; }
-        .theme-btn.blue { background: #0d1117; }
-        .controls { display: flex; flex-direction: column; gap: 8px; }
-        .controls-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-        .btn { padding: 6px 12px; border: 2px solid; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.3s; white-space: nowrap; background: transparent; }
-        .btn-primary { border-color: #007acc; color: #007acc; }
-        .btn-primary:hover { background: #007acc; color: white; }
-        .btn-secondary { border-color: #6c757d; color: #6c757d; }
-        .btn-secondary:hover { background: #6c757d; color: white; }
-        .btn-success { border-color: #16a34a; color: #16a34a; }
-        .btn-success:hover { background: #16a34a; color: white; }
-        .btn-danger { border-color: #dc3545; color: #dc3545; }
-        .btn-danger:hover { background: #dc3545; color: white; }
-        body.theme-light .btn-primary { border-color: #0066cc; color: #0066cc; }
-        body.theme-light .btn-primary:hover { background: #0066cc; color: white; }
-        body.theme-light .btn-secondary { border-color: #495057; color: #495057; }
-        body.theme-light .btn-secondary:hover { background: #495057; color: white; }
-        body.theme-light .btn-success { border-color: #198754; color: #198754; }
-        body.theme-light .btn-success:hover { background: #198754; color: white; }
-        body.theme-light .btn-danger { border-color: #dc3545; color: #dc3545; }
-        body.theme-light .btn-danger:hover { background: #dc3545; color: white; }
-        .file-input-wrapper { position: relative; }
-        .file-input-wrapper input[type=file] { position: absolute; left: -9999px; }
-        .search-box { flex: 1; min-width: 150px; padding: 6px 10px; border-radius: 6px; border: 1px solid #555; font-size: 12px; }
-        body.theme-dark .search-box { background: #3c3c3c; color: #e0e0e0; }
-        body.theme-light .search-box { background: #ffffff; border-color: #ddd; color: #333; }
-        body.theme-blue .search-box { background: #0d1117; border-color: #30363d; color: #c9d1d9; }
-        .filter-group { display: flex; gap: 4px; flex-wrap: wrap; }
-        .filter-btn { padding: 4px 10px; border: 2px solid transparent; border-radius: 12px; cursor: pointer; font-size: 10px; font-weight: 700; transition: all 0.3s; white-space: nowrap; }
-        .filter-btn.active { border-color: currentColor; box-shadow: 0 2px 6px currentColor; }
-        .filter-debug { background: #4a4a4a; color: #d4d4d4; }
-        .filter-info { background: #1a4d2e; color: #4ade80; }
-        .filter-warning { background: #4a3c1f; color: #fbbf24; }
-        .filter-error { background: #4a1f1f; color: #f87171; }
-        .date-filter { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
-        .date-filter label { font-size: 11px; white-space: nowrap; }
-        .date-input, select { padding: 4px 8px; border-radius: 6px; border: 1px solid #555; font-size: 11px; }
-        body.theme-dark .date-input, body.theme-dark select { background: #3c3c3c; color: #e0e0e0; }
-        body.theme-light .date-input, body.theme-light select { background: #ffffff; border-color: #ddd; color: #333; }
-        body.theme-blue .date-input, body.theme-blue select { background: #0d1117; border-color: #30363d; color: #c9d1d9; }
-        .stats-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(70px, 1fr)); gap: 6px; margin-top: 8px; }
-        .stats-card { padding: 8px; border-radius: 6px; text-align: center; }
-        body.theme-dark .stats-card { background: #2d2d30; }
-        body.theme-light .stats-card { background: #f8f9fa; }
-        body.theme-blue .stats-card { background: #161b22; }
-        .stat-label { font-size: 9px; opacity: 0.7; margin-bottom: 3px; }
-        .stat-value { font-size: 16px; font-weight: 700; color: #007acc; }
-        .log-container { flex: 1; overflow-y: auto; padding: 20px; }
-        .log-entry { padding: 15px; margin-bottom: 10px; border-radius: 12px; border-left: 4px solid #007acc; transition: all 0.3s; cursor: pointer; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08); position: relative; overflow: hidden; }
-        .log-entry::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(0, 122, 204, 0.05), transparent); transform: translateX(-100%); transition: transform 0.6s; }
-        .log-entry:hover::before { transform: translateX(100%); }
-        body.theme-dark .log-entry { background: linear-gradient(135deg, #252526 0%, #2a2a2d 100%); }
-        body.theme-light .log-entry { background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%); border: 1px solid #e9ecef; }
-        body.theme-blue .log-entry { background: linear-gradient(135deg, #161b22 0%, #1c2128 100%); }
-        .log-entry:hover { transform: translateX(5px); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
-        .log-entry.debug { border-left-color: #6c757d; }
-        .log-entry.information { border-left-color: #198754; }
-        .log-entry.warning { border-left-color: #ffc107; }
-        .log-entry.error { border-left-color: #dc3545; }
-        .log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-        .log-timestamp { font-size: 11px; font-family: 'SF Mono', Monaco, 'Courier New', monospace; opacity: 0.7; font-weight: 500; }
-        .log-level { padding: 4px 12px; border-radius: 12px; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); }
-        .log-level.debug { background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%); color: #ffffff; }
-        .log-level.information { background: linear-gradient(135deg, #198754 0%, #157347 100%); color: #ffffff; }
-        .log-level.warning { background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%); color: #000000; }
-        .log-level.error { background: linear-gradient(135deg, #dc3545 0%, #c82333 100%); color: #ffffff; }
-        .log-message { margin-bottom: 8px; line-height: 1.6; font-size: 13px; }
-        .log-meta { font-size: 11px; opacity: 0.7; margin-top: 8px; display: flex; gap: 15px; }
-        .log-exception { padding: 10px; margin-top: 10px; border-radius: 8px; font-family: 'SF Mono', Monaco, 'Courier New', monospace; font-size: 11px; white-space: pre-wrap; word-wrap: break-word; border-left: 3px solid; }
-        body.theme-dark .log-exception { background: #2d1f1f; color: #f87171; border-left-color: #f87171; }
-        body.theme-light .log-exception { background: #fff5f5; color: #dc3545; border-left-color: #dc3545; }
-        body.theme-blue .log-exception { background: #1c1e26; color: #f85149; border-left-color: #f85149; }
-        .empty-state { text-align: center; padding: 60px 20px; opacity: 0.6; }
-        .empty-state-icon { font-size: 64px; margin-bottom: 20px; animation: float 3s ease-in-out infinite; }
-        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
-        .highlight { background: linear-gradient(135deg, #ffc107 0%, #ffca2c 100%); color: #000; padding: 2px 6px; border-radius: 4px; font-weight: 600; box-shadow: 0 1px 3px rgba(255, 193, 7, 0.3); }
-        .pagination { display: flex; justify-content: center; align-items: center; gap: 10px; padding: 15px; border-top: 1px solid rgba(128, 128, 128, 0.2); }
-        body.theme-light .pagination { background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%); box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.05); }
-        .pagination button { padding: 8px 16px; background: transparent; color: #007acc; border: 2px solid #007acc; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.3s; font-size: 12px; }
-        .pagination button:hover:not(:disabled) { background: #007acc; color: white; transform: translateY(-1px); box-shadow: 0 3px 6px rgba(0, 122, 204, 0.3); }
-        .pagination button:disabled { opacity: 0.3; cursor: not-allowed; }
-        body.theme-light .pagination button { border-color: #0066cc; color: #0066cc; }
-        body.theme-light .pagination button:hover:not(:disabled) { background: #0066cc; }
-        .pagination span { color: #888; font-size: 12px; font-weight: 600; padding: 0 10px; }
-        .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(100px); background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); color: white; padding: 15px 25px; border-radius: 12px; box-shadow: 0 8px 32px rgba(22, 163, 74, 0.4); font-weight: 600; opacity: 0; transition: all 0.4s; z-index: 1000; }
-        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-        .loading { text-align: center; padding: 40px; font-size: 18px; color: #007acc; }
-        .loader-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); z-index: 9999; display: flex; align-items: center; justify-content: center; flex-direction: column; opacity: 0; pointer-events: none; transition: opacity 0.3s; backdrop-filter: blur(5px); }
-        body.theme-light .loader-overlay { background: rgba(255, 255, 255, 0.95); }
-        .loader-overlay.show { opacity: 1; pointer-events: all; }
-        .loader { width: 60px; height: 60px; border: 4px solid rgba(0, 122, 204, 0.2); border-top-color: #007acc; border-radius: 50%; animation: spin 1s linear infinite; }
-        body.theme-light .loader { border-color: rgba(0, 102, 204, 0.2); border-top-color: #0066cc; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .loader-text { margin-top: 20px; font-size: 18px; font-weight: 600; color: #007acc; }
-        body.theme-light .loader-text { color: #0066cc; }
-        .loader-subtext { margin-top: 8px; font-size: 14px; color: #888; }10px; border-radius: 6px; font-family: monospace; font-size: 12px; white-space: pre-wrap; word-wrap: break-word; }
-        body.theme-dark .log-exception { background: #2d1f1f; color: #f87171; }
-        body.theme-light .log-exception { background: #fff5f5; color: #dc3545; }
-        body.theme-blue .log-exception { background: #1c1e26; color: #f85149; }
-        .empty-state { text-align: center; padding: 60px 20px; opacity: 0.6; }
-        .empty-state-icon { font-size: 64px; margin-bottom: 20px; }
-        .highlight { background: #fbbf24; color: #000; padding: 2px 4px; border-radius: 3px; }
-        .pagination { display: flex; justify-content: center; align-items: center; gap: 10px; padding: 20px; border-top: 1px solid #555; }
-        .pagination button { padding: 8px 16px; background: #007acc; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; }
-        .pagination button:disabled { opacity: 0.3; cursor: not-allowed; }
-        .pagination button:hover:not(:disabled) { background: #005a9e; }
-        .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(100px); background: #16a34a; color: white; padding: 15px 25px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3); font-weight: 600; opacity: 0; transition: all 0.4s; z-index: 1000; }
-        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-        .loading { text-align: center; padding: 40px; font-size: 18px; color: #007acc; }
-        .loader-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); z-index: 9999; display: flex; align-items: center; justify-content: center; flex-direction: column; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
-        .loader-overlay.show { opacity: 1; pointer-events: all; }
-        .loader { width: 60px; height: 60px; border: 4px solid rgba(0, 122, 204, 0.2); border-top-color: #007acc; border-radius: 50%; animation: spin 1s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .loader-text { margin-top: 20px; font-size: 18px; font-weight: 600; color: #007acc; }
-        .loader-subtext { margin-top: 8px; font-size: 14px; color: #888; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            transition: background 0.3s, color 0.3s;
+        }
+
+        body.theme-dark {
+            background: #1e1e1e;
+            color: #e0e0e0;
+        }
+
+        body.theme-light {
+            background: #ffffff;
+            color: #333333;
+        }
+
+        body.theme-blue {
+            background: #0d1117;
+            color: #c9d1d9;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .header {
+            padding: 12px 15px;
+            border-bottom: 2px solid #007acc;
+        }
+
+        body.theme-dark .header {
+            background: #252526;
+        }
+
+        body.theme-light .header {
+            background: #f5f5f5;
+            border-bottom-color: #0066cc;
+        }
+
+        body.theme-blue .header {
+            background: #161b22;
+            border-bottom-color: #58a6ff;
+        }
+
+        .header h1 {
+            font-size: 16px;
+            color: #007acc;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .theme-toggle {
+            display: flex;
+            gap: 4px;
+        }
+
+        .theme-btn {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .theme-btn.active {
+            border-color: #007acc;
+            box-shadow: 0 0 8px rgba(0, 122, 204, 0.5);
+        }
+
+        .theme-btn.dark {
+            background: #1e1e1e;
+        }
+
+        .theme-btn.light {
+            background: #ffffff;
+        }
+
+        .theme-btn.blue {
+            background: #0d1117;
+        }
+
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .controls-row {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .btn {
+            padding: 6px 12px;
+            border: 2px solid;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            transition: all 0.3s;
+            white-space: nowrap;
+            background: transparent;
+        }
+
+        .btn-primary {
+            border-color: #007acc;
+            color: #007acc;
+        }
+
+        .btn-primary:hover {
+            background: #007acc;
+            color: white;
+        }
+
+        .btn-secondary {
+            border-color: #6c757d;
+            color: #6c757d;
+        }
+
+        .btn-secondary:hover {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-success {
+            border-color: #16a34a;
+            color: #16a34a;
+        }
+
+        .btn-success:hover {
+            background: #16a34a;
+            color: white;
+        }
+
+        .btn-danger {
+            border-color: #dc3545;
+            color: #dc3545;
+        }
+
+        .btn-danger:hover {
+            background: #dc3545;
+            color: white;
+        }
+
+        body.theme-light .btn-primary {
+            border-color: #0066cc;
+            color: #0066cc;
+        }
+
+        body.theme-light .btn-primary:hover {
+            background: #0066cc;
+            color: white;
+        }
+
+        body.theme-light .btn-secondary {
+            border-color: #495057;
+            color: #495057;
+        }
+
+        body.theme-light .btn-secondary:hover {
+            background: #495057;
+            color: white;
+        }
+
+        body.theme-light .btn-success {
+            border-color: #198754;
+            color: #198754;
+        }
+
+        body.theme-light .btn-success:hover {
+            background: #198754;
+            color: white;
+        }
+
+        body.theme-light .btn-danger {
+            border-color: #dc3545;
+            color: #dc3545;
+        }
+
+        body.theme-light .btn-danger:hover {
+            background: #dc3545;
+            color: white;
+        }
+
+        .file-input-wrapper {
+            position: relative;
+        }
+
+        .file-input-wrapper input[type=file] {
+            position: absolute;
+            left: -9999px;
+        }
+
+        .search-box {
+            flex: 1;
+            min-width: 150px;
+            padding: 6px 10px;
+            border-radius: 6px;
+            border: 1px solid #555;
+            font-size: 12px;
+        }
+
+        body.theme-dark .search-box {
+            background: #3c3c3c;
+            color: #e0e0e0;
+        }
+
+        body.theme-light .search-box {
+            background: #ffffff;
+            border-color: #ddd;
+            color: #333;
+        }
+
+        body.theme-blue .search-box {
+            background: #0d1117;
+            border-color: #30363d;
+            color: #c9d1d9;
+        }
+
+        .filter-group {
+            display: flex;
+            gap: 4px;
+            flex-wrap: wrap;
+        }
+
+        .filter-btn {
+            padding: 4px 10px;
+            border: 2px solid transparent;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 10px;
+            font-weight: 700;
+            transition: all 0.3s;
+            white-space: nowrap;
+        }
+
+        .filter-btn.active {
+            border-color: currentColor;
+            box-shadow: 0 2px 6px currentColor;
+        }
+
+        .filter-debug {
+            background: #4a4a4a;
+            color: #d4d4d4;
+        }
+
+        .filter-info {
+            background: #1a4d2e;
+            color: #4ade80;
+        }
+
+        .filter-warning {
+            background: #4a3c1f;
+            color: #fbbf24;
+        }
+
+        .filter-error {
+            background: #4a1f1f;
+            color: #f87171;
+        }
+
+        .date-filter {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .date-filter label {
+            font-size: 11px;
+            white-space: nowrap;
+        }
+
+        .date-input,
+        select {
+            padding: 4px 8px;
+            border-radius: 6px;
+            border: 1px solid #555;
+            font-size: 11px;
+        }
+
+        body.theme-dark .date-input,
+        body.theme-dark select {
+            background: #3c3c3c;
+            color: #e0e0e0;
+        }
+
+        body.theme-light .date-input,
+        body.theme-light select {
+            background: #ffffff;
+            border-color: #ddd;
+            color: #333;
+        }
+
+        body.theme-blue .date-input,
+        body.theme-blue select {
+            background: #0d1117;
+            border-color: #30363d;
+            color: #c9d1d9;
+        }
+
+        .stats-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(70px, 1fr));
+            gap: 6px;
+            margin-top: 8px;
+        }
+
+        .stats-card {
+            padding: 8px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        body.theme-dark .stats-card {
+            background: #2d2d30;
+        }
+
+        body.theme-light .stats-card {
+            background: #f8f9fa;
+        }
+
+        body.theme-blue .stats-card {
+            background: #161b22;
+        }
+
+        .stat-label {
+            font-size: 9px;
+            opacity: 0.7;
+            margin-bottom: 3px;
+        }
+
+        .stat-value {
+            font-size: 16px;
+            font-weight: 700;
+            color: #007acc;
+        }
+
+        .log-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .log-entry {
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 12px;
+            border-left: 4px solid #007acc;
+            transition: all 0.3s;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .log-entry::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 122, 204, 0.05), transparent);
+            transform: translateX(-100%);
+            transition: transform 0.6s;
+        }
+
+        .log-entry:hover::before {
+            transform: translateX(100%);
+        }
+
+        body.theme-dark .log-entry {
+            background: linear-gradient(135deg, #252526 0%, #2a2a2d 100%);
+        }
+
+        body.theme-light .log-entry {
+            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+            border: 1px solid #e9ecef;
+        }
+
+        body.theme-blue .log-entry {
+            background: linear-gradient(135deg, #161b22 0%, #1c2128 100%);
+        }
+
+        .log-entry:hover {
+            transform: translateX(5px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .log-entry.debug {
+            border-left-color: #6c757d;
+        }
+
+        .log-entry.information {
+            border-left-color: #198754;
+        }
+
+        .log-entry.warning {
+            border-left-color: #ffc107;
+        }
+
+        .log-entry.error {
+            border-left-color: #dc3545;
+        }
+
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .log-timestamp {
+            font-size: 11px;
+            font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+            opacity: 0.7;
+            font-weight: 500;
+        }
+
+        .log-level {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .log-level.debug {
+            background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%);
+            color: #ffffff;
+        }
+
+        .log-level.information {
+            background: linear-gradient(135deg, #198754 0%, #157347 100%);
+            color: #ffffff;
+        }
+
+        .log-level.warning {
+            background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%);
+            color: #000000;
+        }
+
+        .log-level.error {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+            color: #ffffff;
+        }
+
+        .log-message {
+            margin-bottom: 8px;
+            line-height: 1.6;
+            font-size: 13px;
+        }
+
+        .log-meta {
+            font-size: 11px;
+            opacity: 0.7;
+            margin-top: 8px;
+            display: flex;
+            gap: 15px;
+        }
+
+        .log-exception {
+            padding: 10px;
+            margin-top: 10px;
+            border-radius: 8px;
+            font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+            font-size: 11px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            border-left: 3px solid;
+        }
+
+        body.theme-dark .log-exception {
+            background: #2d1f1f;
+            color: #f87171;
+            border-left-color: #f87171;
+        }
+
+        body.theme-light .log-exception {
+            background: #fff5f5;
+            color: #dc3545;
+            border-left-color: #dc3545;
+        }
+
+        body.theme-blue .log-exception {
+            background: #1c1e26;
+            color: #f85149;
+            border-left-color: #f85149;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            opacity: 0.6;
+        }
+
+        .empty-state-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+            animation: float 3s ease-in-out infinite;
+        }
+
+        @keyframes float {
+
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            50% {
+                transform: translateY(-10px);
+            }
+        }
+
+        .highlight {
+            background: linear-gradient(135deg, #ffc107 0%, #ffca2c 100%);
+            color: #000;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+            box-shadow: 0 1px 3px rgba(255, 193, 7, 0.3);
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            padding: 15px;
+            border-top: 1px solid rgba(128, 128, 128, 0.2);
+        }
+
+        body.theme-light .pagination {
+            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+            box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.05);
+        }
+
+        .pagination button {
+            padding: 8px 16px;
+            background: transparent;
+            color: #007acc;
+            border: 2px solid #007acc;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+            font-size: 12px;
+        }
+
+        .pagination button:hover:not(:disabled) {
+            background: #007acc;
+            color: white;
+            transform: translateY(-1px);
+            box-shadow: 0 3px 6px rgba(0, 122, 204, 0.3);
+        }
+
+        .pagination button:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        body.theme-light .pagination button {
+            border-color: #0066cc;
+            color: #0066cc;
+        }
+
+        body.theme-light .pagination button:hover:not(:disabled) {
+            background: #0066cc;
+        }
+
+        .pagination span {
+            color: #888;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 0 10px;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+            color: white;
+            padding: 15px 25px;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(22, 163, 74, 0.4);
+            font-weight: 600;
+            opacity: 0;
+            transition: all 0.4s;
+            z-index: 1000;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 18px;
+            color: #007acc;
+        }
+
+        .loader-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+            backdrop-filter: blur(5px);
+        }
+
+        body.theme-light .loader-overlay {
+            background: rgba(255, 255, 255, 0.95);
+        }
+
+        .loader-overlay.show {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .loader {
+            width: 60px;
+            height: 60px;
+            border: 4px solid rgba(0, 122, 204, 0.2);
+            border-top-color: #007acc;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        body.theme-light .loader {
+            border-color: rgba(0, 102, 204, 0.2);
+            border-top-color: #0066cc;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .loader-text {
+            margin-top: 20px;
+            font-size: 18px;
+            font-weight: 600;
+            color: #007acc;
+        }
+
+        body.theme-light .loader-text {
+            color: #0066cc;
+        }
+
+        .loader-subtext {
+            margin-top: 8px;
+            font-size: 14px;
+            color: #888;
+        }
+
+        10px;
+        border-radius: 6px;
+        font-family: monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        }
+
+        body.theme-dark .log-exception {
+            background: #2d1f1f;
+            color: #f87171;
+        }
+
+        body.theme-light .log-exception {
+            background: #fff5f5;
+            color: #dc3545;
+        }
+
+        body.theme-blue .log-exception {
+            background: #1c1e26;
+            color: #f85149;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            opacity: 0.6;
+        }
+
+        .empty-state-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        .highlight {
+            background: #fbbf24;
+            color: #000;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            padding: 20px;
+            border-top: 1px solid #555;
+        }
+
+        .pagination button {
+            padding: 8px 16px;
+            background: #007acc;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .pagination button:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        .pagination button:hover:not(:disabled) {
+            background: #005a9e;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: #16a34a;
+            color: white;
+            padding: 15px 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            font-weight: 600;
+            opacity: 0;
+            transition: all 0.4s;
+            z-index: 1000;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 18px;
+            color: #007acc;
+        }
+
+        .loader-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+
+        .loader-overlay.show {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .loader {
+            width: 60px;
+            height: 60px;
+            border: 4px solid rgba(0, 122, 204, 0.2);
+            border-top-color: #007acc;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .loader-text {
+            margin-top: 20px;
+            font-size: 18px;
+            font-weight: 600;
+            color: #007acc;
+        }
+
+        .loader-subtext {
+            margin-top: 8px;
+            font-size: 14px;
+            color: #888;
+        }
+
         @media (max-width: 768px) {
-            .header { padding: 10px; }
-            .header h1 { font-size: 14px; flex-direction: column; gap: 8px; }
-            .controls-row { flex-direction: column; align-items: stretch; }
-            .btn { width: 100%; text-align: center; }
-            .filter-group { justify-content: center; }
-            .date-filter { flex-direction: column; align-items: stretch; }
-            .date-input, select { width: 100%; }
-            .stats-container { grid-template-columns: repeat(4, 1fr); }
-            .modal-content { width: 95%; padding: 15px; max-height: 90vh; }
-            .modal-info-grid { grid-template-columns: 1fr; }
-            .log-container { padding: 10px; }
-            .log-entry { padding: 12px; }
+            .header {
+                padding: 10px;
+            }
+
+            .header h1 {
+                font-size: 14px;
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .controls-row {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .btn {
+                width: 100%;
+                text-align: center;
+            }
+
+            .filter-group {
+                justify-content: center;
+            }
+
+            .date-filter {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .date-input,
+            select {
+                width: 100%;
+            }
+
+            .stats-container {
+                grid-template-columns: repeat(4, 1fr);
+            }
+
+            .modal-content {
+                width: 95%;
+                padding: 15px;
+                max-height: 90vh;
+            }
+
+            .modal-info-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .log-container {
+                padding: 10px;
+            }
+
+            .log-entry {
+                padding: 12px;
+            }
         }
+
         @media (max-width: 480px) {
-            .header h1 { font-size: 12px; }
-            .theme-btn { width: 20px; height: 20px; }
-            .filter-btn { font-size: 9px; padding: 3px 8px; }
-            .btn { font-size: 11px; padding: 5px 10px; }
-            .stats-container { grid-template-columns: repeat(4, 1fr); gap: 4px; }
-            .stat-value { font-size: 14px; }
-            .stat-label { font-size: 8px; }
-            .log-entry { padding: 10px; font-size: 12px; }
+            .header h1 {
+                font-size: 12px;
+            }
+
+            .theme-btn {
+                width: 20px;
+                height: 20px;
+            }
+
+            .filter-btn {
+                font-size: 9px;
+                padding: 3px 8px;
+            }
+
+            .btn {
+                font-size: 11px;
+                padding: 5px 10px;
+            }
+
+            .stats-container {
+                grid-template-columns: repeat(4, 1fr);
+                gap: 4px;
+            }
+
+            .stat-value {
+                font-size: 14px;
+            }
+
+            .stat-label {
+                font-size: 8px;
+            }
+
+            .log-entry {
+                padding: 10px;
+                font-size: 12px;
+            }
         }
-        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); z-index: 2000; align-items: center; justify-content: center; }
-        .modal.show { display: flex; animation: fadeIn 0.3s; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        .modal-content { background: #252526; border-radius: 12px; padding: 30px; max-width: 900px; width: 90%; max-height: 85vh; overflow-y: auto; box-shadow: 0 10px 50px rgba(0, 0, 0, 0.5); animation: slideDown 0.3s; position: relative; }
-        @keyframes slideDown { from { transform: translateY(-50px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-        body.theme-light .modal-content { background: #ffffff; }
-        body.theme-blue .modal-content { background: #161b22; border: 1px solid #30363d; }
-        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; padding-bottom: 15px; border-bottom: 2px solid #007acc; }
-        .modal-title { font-size: 24px; font-weight: 700; color: #007acc; }
-        .modal-close { width: 40px; height: 40px; border: none; background: #dc3545; color: white; border-radius: 50%; font-size: 24px; cursor: pointer; transition: all 0.3s; display: flex; align-items: center; justify-content: center; line-height: 1; }
-        .modal-close:hover { background: #c82333; transform: rotate(90deg); }
-        .modal-section { margin-bottom: 20px; }
-        .modal-section-title { font-size: 14px; font-weight: 700; text-transform: uppercase; opacity: 0.7; margin-bottom: 10px; letter-spacing: 1px; }
-        .modal-section-content { padding: 15px; border-radius: 8px; line-height: 1.8; word-wrap: break-word; }
-        body.theme-dark .modal-section-content { background: rgba(0, 0, 0, 0.2); }
-        body.theme-light .modal-section-content { background: #f8f9fa; }
-        body.theme-blue .modal-section-content { background: rgba(0, 0, 0, 0.3); }
-        .modal-info-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; }
-        .modal-info-item { padding: 12px; border-radius: 6px; background: rgba(0, 122, 204, 0.1); }
-        .modal-info-label { font-size: 11px; text-transform: uppercase; opacity: 0.7; margin-bottom: 5px; }
-        .modal-info-value { font-size: 16px; font-weight: 600; font-family: monospace; }
-        .modal-exception { background: #2d1f1f; color: #f87171; padding: 15px; border-radius: 8px; font-family: monospace; font-size: 13px; white-space: pre-wrap; word-wrap: break-word; max-height: 300px; overflow-y: auto; border-left: 4px solid #f87171; }
-        body.theme-light .modal-exception { background: #fff5f5; color: #dc3545; border-left-color: #dc3545; }
-        body.theme-blue .modal-exception { background: #1c1e26; color: #f85149; border-left-color: #f85149; }
-        .file-list { margin-top: 15px; padding: 15px; border-radius: 8px; }
-        body.theme-dark .file-list { background: rgba(0, 0, 0, 0.2); }
-        body.theme-light .file-list { background: #f8f9fa; }
-        body.theme-blue .file-list { background: rgba(0, 0, 0, 0.3); }
-        .file-item { display: flex; align-items: center; padding: 8px; margin-bottom: 6px; border-radius: 6px; transition: all 0.3s; }
-        .file-item:hover { background: rgba(0, 122, 204, 0.1); }
-        .file-icon { margin-right: 10px; font-size: 16px; }
-        .pagination.hidden { display: none; }
-        #modalExceptionSection.hidden { display: none; }
-        .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
-        .reports-modal .modal-content { max-width: 1100px; }
-        .report-section { margin-bottom: 30px; }
-        .report-title { font-size: 18px; font-weight: 700; color: #007acc; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #007acc; }
-        .report-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 20px; }
-        .report-card { padding: 20px; border-radius: 8px; border-left: 4px solid #007acc; }
-        body.theme-dark .report-card { background: rgba(0, 0, 0, 0.3); }
-        body.theme-light .report-card { background: #f8f9fa; }
-        body.theme-blue .report-card { background: rgba(0, 0, 0, 0.4); }
-        .report-card-title { font-size: 14px; text-transform: uppercase; opacity: 0.7; margin-bottom: 10px; }
-        .report-card-value { font-size: 32px; font-weight: 700; color: #007acc; }
-        .report-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        .report-table th { text-align: left; padding: 12px; font-size: 12px; text-transform: uppercase; opacity: 0.7; border-bottom: 2px solid #007acc; }
-        .report-table td { padding: 12px; border-bottom: 1px solid rgba(128, 128, 128, 0.2); }
-        .report-table tr:hover { background: rgba(0, 122, 204, 0.1); }
-        .report-bar { height: 8px; background: #007acc; border-radius: 4px; margin-top: 5px; }
-        .report-percentage { font-size: 12px; opacity: 0.7; margin-left: 10px; }
-        .chart-container { padding: 20px; border-radius: 8px; margin-top: 10px; }
-        body.theme-dark .chart-container { background: rgba(0, 0, 0, 0.2); }
-        body.theme-light .chart-container { background: #f8f9fa; }
-        body.theme-blue .chart-container { background: rgba(0, 0, 0, 0.3); }
-        .timeline-item { padding: 15px; border-left: 3px solid #007acc; margin-bottom: 10px; border-radius: 4px; }
-        body.theme-dark .timeline-item { background: rgba(0, 0, 0, 0.2); }
-        body.theme-light .timeline-item { background: #f8f9fa; }
-        body.theme-blue .timeline-item { background: rgba(0, 0, 0, 0.3); }
-        .timeline-time { font-size: 12px; opacity: 0.7; margin-bottom: 5px; }
-        .timeline-count { font-size: 20px; font-weight: 700; color: #007acc; }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.show {
+            display: flex;
+            animation: fadeIn 0.3s;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        .modal-content {
+            background: #252526;
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 900px;
+            width: 90%;
+            max-height: 85vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 50px rgba(0, 0, 0, 0.5);
+            animation: slideDown 0.3s;
+            position: relative;
+        }
+
+        @keyframes slideDown {
+            from {
+                transform: translateY(-50px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        body.theme-light .modal-content {
+            background: #ffffff;
+        }
+
+        body.theme-blue .modal-content {
+            background: #161b22;
+            border: 1px solid #30363d;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #007acc;
+        }
+
+        .modal-title {
+            font-size: 24px;
+            font-weight: 700;
+            color: #007acc;
+        }
+
+        .modal-close {
+            width: 40px;
+            height: 40px;
+            border: none;
+            background: #dc3545;
+            color: white;
+            border-radius: 50%;
+            font-size: 24px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+        }
+
+        .modal-close:hover {
+            background: #c82333;
+            transform: rotate(90deg);
+        }
+
+        .modal-section {
+            margin-bottom: 20px;
+        }
+
+        .modal-section-title {
+            font-size: 14px;
+            font-weight: 700;
+            text-transform: uppercase;
+            opacity: 0.7;
+            margin-bottom: 10px;
+            letter-spacing: 1px;
+        }
+
+        .modal-section-content {
+            padding: 15px;
+            border-radius: 8px;
+            line-height: 1.8;
+            word-wrap: break-word;
+        }
+
+        body.theme-dark .modal-section-content {
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        body.theme-light .modal-section-content {
+            background: #f8f9fa;
+        }
+
+        body.theme-blue .modal-section-content {
+            background: rgba(0, 0, 0, 0.3);
+        }
+
+        .modal-info-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+        }
+
+        .modal-info-item {
+            padding: 12px;
+            border-radius: 6px;
+            background: rgba(0, 122, 204, 0.1);
+        }
+
+        .modal-info-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            opacity: 0.7;
+            margin-bottom: 5px;
+        }
+
+        .modal-info-value {
+            font-size: 16px;
+            font-weight: 600;
+            font-family: monospace;
+        }
+
+        .modal-exception {
+            background: #2d1f1f;
+            color: #f87171;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 13px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 300px;
+            overflow-y: auto;
+            border-left: 4px solid #f87171;
+        }
+
+        body.theme-light .modal-exception {
+            background: #fff5f5;
+            color: #dc3545;
+            border-left-color: #dc3545;
+        }
+
+        body.theme-blue .modal-exception {
+            background: #1c1e26;
+            color: #f85149;
+            border-left-color: #f85149;
+        }
+
+        .file-list {
+            margin-top: 15px;
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        body.theme-dark .file-list {
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        body.theme-light .file-list {
+            background: #f8f9fa;
+        }
+
+        body.theme-blue .file-list {
+            background: rgba(0, 0, 0, 0.3);
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            padding: 8px;
+            margin-bottom: 6px;
+            border-radius: 6px;
+            transition: all 0.3s;
+        }
+
+        .file-item:hover {
+            background: rgba(0, 122, 204, 0.1);
+        }
+
+        .file-icon {
+            margin-right: 10px;
+            font-size: 16px;
+        }
+
+        .pagination.hidden {
+            display: none;
+        }
+
+        #modalExceptionSection.hidden {
+            display: none;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .reports-modal .modal-content {
+            max-width: 1100px;
+        }
+
+        .report-section {
+            margin-bottom: 30px;
+        }
+
+        .report-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: #007acc;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #007acc;
+        }
+
+        .report-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .report-card {
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #007acc;
+        }
+
+        body.theme-dark .report-card {
+            background: rgba(0, 0, 0, 0.3);
+        }
+
+        body.theme-light .report-card {
+            background: #f8f9fa;
+        }
+
+        body.theme-blue .report-card {
+            background: rgba(0, 0, 0, 0.4);
+        }
+
+        .report-card-title {
+            font-size: 14px;
+            text-transform: uppercase;
+            opacity: 0.7;
+            margin-bottom: 10px;
+        }
+
+        .report-card-value {
+            font-size: 32px;
+            font-weight: 700;
+            color: #007acc;
+        }
+
+        .report-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        .report-table th {
+            text-align: left;
+            padding: 12px;
+            font-size: 12px;
+            text-transform: uppercase;
+            opacity: 0.7;
+            border-bottom: 2px solid #007acc;
+        }
+
+        .report-table td {
+            padding: 12px;
+            border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+        }
+
+        .report-table tr:hover {
+            background: rgba(0, 122, 204, 0.1);
+        }
+
+        .report-bar {
+            height: 8px;
+            background: #007acc;
+            border-radius: 4px;
+            margin-top: 5px;
+        }
+
+        .report-percentage {
+            font-size: 12px;
+            opacity: 0.7;
+            margin-left: 10px;
+        }
+
+        .chart-container {
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+
+        body.theme-dark .chart-container {
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        body.theme-light .chart-container {
+            background: #f8f9fa;
+        }
+
+        body.theme-blue .chart-container {
+            background: rgba(0, 0, 0, 0.3);
+        }
+
+        .timeline-item {
+            padding: 15px;
+            border-left: 3px solid #007acc;
+            margin-bottom: 10px;
+            border-radius: 4px;
+        }
+
+        body.theme-dark .timeline-item {
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        body.theme-light .timeline-item {
+            background: #f8f9fa;
+        }
+
+        body.theme-blue .timeline-item {
+            background: rgba(0, 0, 0, 0.3);
+        }
+
+        .timeline-time {
+            font-size: 12px;
+            opacity: 0.7;
+            margin-bottom: 5px;
+        }
+
+        .timeline-count {
+            font-size: 20px;
+            font-weight: 700;
+            color: #007acc;
+        }
     </style>
 </head>
+
 <body class="theme-dark">
     <div class="container">
         <div class="header">
@@ -240,18 +1329,24 @@
                     </div>
                     <input type="text" id="searchBox" class="search-box" placeholder="Search...">
                     <div class="filter-group">
-                        <button class="filter-btn filter-debug active" data-level="debug" title="Debug Level">DBG</button>
-                        <button class="filter-btn filter-info active" data-level="information" title="Information Level">INF</button>
-                        <button class="filter-btn filter-warning active" data-level="warning" title="Warning Level">WRN</button>
-                        <button class="filter-btn filter-error active" data-level="error" title="Error Level">ERR</button>
+                        <button class="filter-btn filter-debug active" data-level="debug"
+                            title="Debug Level">DBG</button>
+                        <button class="filter-btn filter-info active" data-level="information"
+                            title="Information Level">INF</button>
+                        <button class="filter-btn filter-warning active" data-level="warning"
+                            title="Warning Level">WRN</button>
+                        <button class="filter-btn filter-error active" data-level="error"
+                            title="Error Level">ERR</button>
                     </div>
                 </div>
                 <div class="controls-row">
                     <div class="date-filter">
                         <label for="dateFrom">From:</label>
-                        <input type="datetime-local" id="dateFrom" class="date-input" title="Filter logs from this date/time">
+                        <input type="datetime-local" id="dateFrom" class="date-input"
+                            title="Filter logs from this date/time">
                         <label for="dateTo">To:</label>
-                        <input type="datetime-local" id="dateTo" class="date-input" title="Filter logs until this date/time">
+                        <input type="datetime-local" id="dateTo" class="date-input"
+                            title="Filter logs until this date/time">
                         <button class="btn btn-secondary" id="clearDateBtn">Clear</button>
                     </div>
                     <select id="pageSize" class="date-input" title="Number of logs per page">
@@ -266,13 +1361,34 @@
                 </div>
             </div>
             <div class="stats-container">
-                <div class="stats-card"><div class="stat-label">Files</div><div class="stat-value" id="fileCount">0</div></div>
-                <div class="stats-card"><div class="stat-label">Total</div><div class="stat-value" id="totalCount">0</div></div>
-                <div class="stats-card"><div class="stat-label">Visible</div><div class="stat-value" id="visibleCount">0</div></div>
-                <div class="stats-card"><div class="stat-label">Debug</div><div class="stat-value" id="debugCount">0</div></div>
-                <div class="stats-card"><div class="stat-label">Info</div><div class="stat-value" id="infoCount">0</div></div>
-                <div class="stats-card"><div class="stat-label">Warnings</div><div class="stat-value" id="warningCount">0</div></div>
-                <div class="stats-card"><div class="stat-label">Errors</div><div class="stat-value" id="errorCount">0</div></div>
+                <div class="stats-card">
+                    <div class="stat-label">Files</div>
+                    <div class="stat-value" id="fileCount">0</div>
+                </div>
+                <div class="stats-card">
+                    <div class="stat-label">Total</div>
+                    <div class="stat-value" id="totalCount">0</div>
+                </div>
+                <div class="stats-card">
+                    <div class="stat-label">Visible</div>
+                    <div class="stat-value" id="visibleCount">0</div>
+                </div>
+                <div class="stats-card">
+                    <div class="stat-label">Debug</div>
+                    <div class="stat-value" id="debugCount">0</div>
+                </div>
+                <div class="stats-card">
+                    <div class="stat-label">Info</div>
+                    <div class="stat-value" id="infoCount">0</div>
+                </div>
+                <div class="stats-card">
+                    <div class="stat-label">Warnings</div>
+                    <div class="stat-value" id="warningCount">0</div>
+                </div>
+                <div class="stats-card">
+                    <div class="stat-label">Errors</div>
+                    <div class="stat-value" id="errorCount">0</div>
+                </div>
             </div>
             <div id="fileList" class="file-list"></div>
         </div>
@@ -352,804 +1468,805 @@
         </div>
     </div>
     <script nonce="abcdxefx123x456">
-class LogViewer {
-    constructor() {
-        this.logs = [];
-        this.filteredLogs = [];
-        this.filters = { debug: true, information: true, warning: true, error: true };
-        this.searchQuery = '';
-        this.dateFrom = null;
-        this.dateTo = null;
-        this.loadedFiles = 0;
-        this.loadedFileNames = [];
-        this.currentPage = 1;
-        this.logsPerPage = 100;
-        this.currentModalLog = null;
-        this.init();
-    }
-    init() {
-        document.getElementById('fileInput').addEventListener('change', (e) => this.loadFiles(e));
-        document.getElementById('searchBox').addEventListener('input', (e) => this.search(e.target.value));
-        document.getElementById('clearBtn').addEventListener('click', () => this.clear());
-        document.getElementById('exportBtn').addEventListener('click', () => this.exportLogs());
-        document.getElementById('clearDateBtn').addEventListener('click', () => this.clearDateFilter());
-        document.getElementById('dateFrom').addEventListener('change', (e) => this.setDateFrom(e.target.value));
-        document.getElementById('dateTo').addEventListener('change', (e) => this.setDateTo(e.target.value));
-        document.getElementById('prevBtn').addEventListener('click', () => this.prevPage());
-        document.getElementById('nextBtn').addEventListener('click', () => this.nextPage());
-        document.getElementById('firstBtn').addEventListener('click', () => this.firstPage());
-        document.getElementById('lastBtn').addEventListener('click', () => this.lastPage());
-        document.getElementById('pageSize').addEventListener('change', (e) => this.changePageSize(e.target.value));
-        document.getElementById('modalClose').addEventListener('click', () => this.closeModal());
-        document.getElementById('modalCloseBtn').addEventListener('click', () => this.closeModal());
-        document.getElementById('modalCopy').addEventListener('click', () => this.copyModalLog());
-        document.getElementById('logModal').addEventListener('click', (e) => {
-            if (e.target.id === 'logModal') this.closeModal();
-        });
-        document.getElementById('reportsBtn').addEventListener('click', () => this.showReports());
-        document.getElementById('reportsClose').addEventListener('click', () => this.closeReports());
-        document.getElementById('reportsCloseBtn').addEventListener('click', () => this.closeReports());
-        document.getElementById('exportReportBtn').addEventListener('click', () => this.exportReport());
-        document.getElementById('reportsModal').addEventListener('click', (e) => {
-            if (e.target.id === 'reportsModal') this.closeReports();
-        });
-        document.querySelectorAll('.filter-btn').forEach(btn => {
-            btn.addEventListener('click', () => this.toggleFilter(btn));
-        });
-        document.querySelectorAll('.theme-btn').forEach(btn => {
-            btn.addEventListener('click', () => this.setTheme(btn.dataset.theme));
-        });
-    }
-    setTheme(theme) {
-        document.body.className = 'theme-' + theme;
-        document.querySelectorAll('.theme-btn').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.theme === theme);
-        });
-        this.showToast('Theme changed to ' + theme);
-    }
-    showToast(msg) {
-        const toast = document.getElementById('toast');
-        toast.textContent = msg;
-        toast.classList.add('show');
-        setTimeout(() => toast.classList.remove('show'), 3000);
-    }
-    showLoader(text) {
-        document.getElementById('loaderOverlay').classList.add('show');
-        document.getElementById('loaderSubtext').textContent = text || 'Processing files';
-    }
-    hideLoader() {
-        document.getElementById('loaderOverlay').classList.remove('show');
-    }
-    loadFiles(event) {
-        const files = Array.from(event.target.files);
-        if (!files.length) return;
-        
-        // Show loader immediately
-        setTimeout(() => {
-            this.showLoader('Reading ' + files.length + ' file(s)...');
-        }, 0);
-        
-        this.loadedFiles = files.length;
-        this.loadedFileNames = files.map(f => f.name);
-        let loaded = 0;
-        const contents = [];
-        
-        files.forEach((file, i) => {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                contents[i] = e.target.result;
-                loaded++;
-                document.getElementById('loaderSubtext').textContent = 'Loaded ' + loaded + ' of ' + files.length + ' files';
-                
-                if (loaded === files.length) {
-                    document.getElementById('loaderSubtext').textContent = 'Parsing logs...';
-                    setTimeout(() => {
-                        this.parseLogs(contents.join('\n'));
+        class LogViewer {
+            constructor() {
+                this.logs = [];
+                this.filteredLogs = [];
+                this.filters = { debug: true, information: true, warning: true, error: true };
+                this.searchQuery = '';
+                this.dateFrom = null;
+                this.dateTo = null;
+                this.loadedFiles = 0;
+                this.loadedFileNames = [];
+                this.currentPage = 1;
+                this.logsPerPage = 100;
+                this.currentModalLog = null;
+                this.init();
+            }
+            init() {
+                document.getElementById('fileInput').addEventListener('change', (e) => this.loadFiles(e));
+                document.getElementById('searchBox').addEventListener('input', (e) => this.search(e.target.value));
+                document.getElementById('clearBtn').addEventListener('click', () => this.clear());
+                document.getElementById('exportBtn').addEventListener('click', () => this.exportLogs());
+                document.getElementById('clearDateBtn').addEventListener('click', () => this.clearDateFilter());
+                document.getElementById('dateFrom').addEventListener('change', (e) => this.setDateFrom(e.target.value));
+                document.getElementById('dateTo').addEventListener('change', (e) => this.setDateTo(e.target.value));
+                document.getElementById('prevBtn').addEventListener('click', () => this.prevPage());
+                document.getElementById('nextBtn').addEventListener('click', () => this.nextPage());
+                document.getElementById('firstBtn').addEventListener('click', () => this.firstPage());
+                document.getElementById('lastBtn').addEventListener('click', () => this.lastPage());
+                document.getElementById('pageSize').addEventListener('change', (e) => this.changePageSize(e.target.value));
+                document.getElementById('modalClose').addEventListener('click', () => this.closeModal());
+                document.getElementById('modalCloseBtn').addEventListener('click', () => this.closeModal());
+                document.getElementById('modalCopy').addEventListener('click', () => this.copyModalLog());
+                document.getElementById('logModal').addEventListener('click', (e) => {
+                    if (e.target.id === 'logModal') this.closeModal();
+                });
+                document.getElementById('reportsBtn').addEventListener('click', () => this.showReports());
+                document.getElementById('reportsClose').addEventListener('click', () => this.closeReports());
+                document.getElementById('reportsCloseBtn').addEventListener('click', () => this.closeReports());
+                document.getElementById('exportReportBtn').addEventListener('click', () => this.exportReport());
+                document.getElementById('reportsModal').addEventListener('click', (e) => {
+                    if (e.target.id === 'reportsModal') this.closeReports();
+                });
+                document.querySelectorAll('.filter-btn').forEach(btn => {
+                    btn.addEventListener('click', () => this.toggleFilter(btn));
+                });
+                document.querySelectorAll('.theme-btn').forEach(btn => {
+                    btn.addEventListener('click', () => this.setTheme(btn.dataset.theme));
+                });
+            }
+            setTheme(theme) {
+                document.body.className = 'theme-' + theme;
+                document.querySelectorAll('.theme-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.theme === theme);
+                });
+                this.showToast('Theme changed to ' + theme);
+            }
+            showToast(msg) {
+                const toast = document.getElementById('toast');
+                toast.textContent = msg;
+                toast.classList.add('show');
+                setTimeout(() => toast.classList.remove('show'), 3000);
+            }
+            showLoader(text) {
+                document.getElementById('loaderOverlay').classList.add('show');
+                document.getElementById('loaderSubtext').textContent = text || 'Processing files';
+            }
+            hideLoader() {
+                document.getElementById('loaderOverlay').classList.remove('show');
+            }
+            loadFiles(event) {
+                const files = Array.from(event.target.files);
+                if (!files.length) return;
+
+                // Show loader immediately
+                setTimeout(() => {
+                    this.showLoader('Reading ' + files.length + ' file(s)...');
+                }, 0);
+
+                this.loadedFiles = files.length;
+                this.loadedFileNames = files.map(f => f.name);
+                let loaded = 0;
+                const contents = [];
+
+                files.forEach((file, i) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        contents[i] = e.target.result;
+                        loaded++;
+                        document.getElementById('loaderSubtext').textContent = 'Loaded ' + loaded + ' of ' + files.length + ' files';
+
+                        if (loaded === files.length) {
+                            document.getElementById('loaderSubtext').textContent = 'Parsing logs...';
+                            setTimeout(() => {
+                                this.parseLogs(contents.join('\n'));
+                                this.hideLoader();
+                                this.showToast('Loaded ' + files.length + ' file(s) successfully');
+                            }, 100);
+                        }
+                    };
+                    reader.onerror = () => {
                         this.hideLoader();
-                        this.showToast('Loaded ' + files.length + ' file(s) successfully');
-                    }, 100);
-                }
-            };
-            reader.onerror = () => {
-                this.hideLoader();
-                this.showToast('Error reading file');
-            };
-            reader.readAsText(file);
-        });
-    }
-    parseLogs(content) {
-        try {
-            const lines = content.split('\n');
-            this.logs = [];
-            let current = null;
+                        this.showToast('Error reading file');
+                    };
+                    reader.readAsText(file);
+                });
+            }
+            parseLogs(content) {
+                try {
+                    const lines = content.split('\n');
+                    this.logs = [];
+                    let current = null;
 
-            console.log('Starting to parse', lines.length, 'lines...');
+                    console.log('Starting to parse', lines.length, 'lines...');
 
-            for (let i = 0; i < lines.length; i++) {
-                const line = lines[i];
-                if (!line.trim()) continue;
-                
-                // Match timestamp: yyyy-MM-dd HH:mm:ss.fff zzz
-                const tsMatch = line.match(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+[+-]\d{2}:\d{2})/);
-                
-                if (tsMatch) {
-                    const ts = tsMatch[1];
-                    const after = line.substring(ts.length).trim();
-                    
-                    let logMatch = null;
-                    let format = null;
-                    let threadId = null;
-                    let message = null;
-                    let level = null;
-                    
-                    // Format 1: [LEVEL] [ThreadID] Message
-                    // Example: 2025-10-09 09:32:02.613 +04:00 [INF] [1] Start installing...
-                    logMatch = after.match(/^\[([A-Z]{3})\]\s+\[([^\]]+)\]\s+(.*)$/);
-                    if (logMatch) {
-                        format = 'format1';
-                        level = logMatch[1];
-                        threadId = logMatch[2];
-                        message = logMatch[3];
-                        if (i < 3) console.log('Format 1 matched - Level:', level, 'Thread:', threadId);
-                    } else {
-                        // Format 2: [LEVEL] Message (no ThreadID)
-                        // Example: 2025-07-01 03:09:32.465 +04:00 [INF] LobETL service ends...
-                        logMatch = after.match(/^\[([A-Z]{3})\]\s+(.*)$/);
-                        if (logMatch) {
-                            format = 'format2';
-                            level = logMatch[1];
-                            message = logMatch[2];
-                            threadId = 'N/A';
-                            if (i < 3) console.log('Format 2 matched - Level:', level);
+                    for (let i = 0; i < lines.length; i++) {
+                        const line = lines[i];
+                        if (!line.trim()) continue;
+
+                        // Match timestamp: yyyy-MM-dd HH:mm:ss.fff zzz
+                        const tsMatch = line.match(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+[+-]\d{2}:\d{2})/);
+
+                        if (tsMatch) {
+                            const ts = tsMatch[1];
+                            const after = line.substring(ts.length).trim();
+
+                            let logMatch = null;
+                            let format = null;
+                            let threadId = null;
+                            let message = null;
+                            let level = null;
+
+                            // Format 1: [LEVEL] [ThreadID] Message
+                            // Example: 2025-10-09 09:32:02.613 +04:00 [INF] [1] Start installing...
+                            logMatch = after.match(/^\[([A-Z]{3})\]\s+\[([^\]]+)\]\s+(.*)$/);
+                            if (logMatch) {
+                                format = 'format1';
+                                level = logMatch[1];
+                                threadId = logMatch[2];
+                                message = logMatch[3];
+                                if (i < 3) console.log('Format 1 matched - Level:', level, 'Thread:', threadId);
+                            } else {
+                                // Format 2: [LEVEL] Message (no ThreadID)
+                                // Example: 2025-07-01 03:09:32.465 +04:00 [INF] LobETL service ends...
+                                logMatch = after.match(/^\[([A-Z]{3})\]\s+(.*)$/);
+                                if (logMatch) {
+                                    format = 'format2';
+                                    level = logMatch[1];
+                                    message = logMatch[2];
+                                    threadId = 'N/A';
+                                    if (i < 3) console.log('Format 2 matched - Level:', level);
+                                }
+                            }
+
+                            if (logMatch) {
+                                // Save previous log if exists
+                                if (current) {
+                                    this.logs.push(current);
+                                }
+
+                                const levelMap = {
+                                    'DBG': 'debug',
+                                    'INF': 'information',
+                                    'WRN': 'warning',
+                                    'ERR': 'error',
+                                    'VRB': 'debug',
+                                    'FTL': 'error'
+                                };
+
+                                const levelKey = level.toUpperCase();
+                                const dateParts = ts.match(/(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2}\.\d{3})/);
+
+                                // Check if message contains correlation ID pattern
+                                const correlationMatch = message.match(/^([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\s+-\s+(.*)$/i);
+                                let correlationId = null;
+                                if (correlationMatch) {
+                                    correlationId = correlationMatch[1];
+                                    message = correlationMatch[2];
+                                }
+
+                                current = {
+                                    timestamp: ts,
+                                    date: dateParts ? new Date(dateParts[1] + 'T' + dateParts[2]) : new Date(),
+                                    level: levelMap[levelKey] || 'information',
+                                    threadId: threadId,
+                                    message: message,
+                                    exception: '',
+                                    format: format,
+                                    correlationId: correlationId
+                                };
+                            } else {
+                                if (i < 5) {
+                                    console.log('Line', i, 'did not match any format:', line);
+                                }
+                            }
+                        } else if (current) {
+                            // Continuation line (exception or multiline message)
+                            current.exception += line + '\n';
+                        } else {
+                            if (i < 5 && line.trim()) {
+                                console.log('Line', i, 'no timestamp found:', line.substring(0, 100));
+                            }
                         }
                     }
-                    
-                    if (logMatch) {
-                        // Save previous log if exists
-                        if (current) {
-                            this.logs.push(current);
-                        }
-                        
-                        const levelMap = {
-                            'DBG': 'debug',
-                            'INF': 'information',
-                            'WRN': 'warning',
-                            'ERR': 'error',
-                            'VRB': 'debug',
-                            'FTL': 'error'
+
+                    // Add the last log
+                    if (current) {
+                        this.logs.push(current);
+                    }
+
+                    console.log('Total logs parsed:', this.logs.length);
+
+                    if (this.logs.length > 0) {
+                        this.logs.sort((a, b) => a.date - b.date);
+                        this.currentPage = 1;
+                        this.applyFilters();
+                        this.updateStats();
+
+                        const formatCounts = {
+                            format1: this.logs.filter(l => l.format === 'format1').length,
+                            format2: this.logs.filter(l => l.format === 'format2').length,
+                            withCorrelation: this.logs.filter(l => l.correlationId).length
                         };
+                        console.log('Parsed formats:', formatCounts);
 
-                        const levelKey = level.toUpperCase();
-                        const dateParts = ts.match(/(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2}\.\d{3})/);
-                        
-                        // Check if message contains correlation ID pattern
-                        const correlationMatch = message.match(/^([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\s+-\s+(.*)$/i);
-                        let correlationId = null;
-                        if (correlationMatch) {
-                            correlationId = correlationMatch[1];
-                            message = correlationMatch[2];
-                        }
-                        
-                        current = {
-                            timestamp: ts,
-                            date: dateParts ? new Date(dateParts[1] + 'T' + dateParts[2]) : new Date(),
-                            level: levelMap[levelKey] || 'information',
-                            threadId: threadId,
-                            message: message,
-                            exception: '',
-                            format: format,
-                            correlationId: correlationId
-                        };
+                        let formatMsg = 'Parsed ' + this.logs.length + ' logs';
+                        if (formatCounts.format1 > 0) formatMsg += ' (' + formatCounts.format1 + ' with Thread ID';
+                        if (formatCounts.format2 > 0) formatMsg += (formatCounts.format1 > 0 ? ', ' : ' (') + formatCounts.format2 + ' without Thread ID';
+                        if (formatCounts.withCorrelation > 0) formatMsg += ', ' + formatCounts.withCorrelation + ' with Correlation ID';
+                        formatMsg += ')';
+
+                        this.showToast(formatMsg);
                     } else {
-                        if (i < 5) {
-                            console.log('Line', i, 'did not match any format:', line);
-                        }
+                        console.error('No logs could be parsed from the file');
+                        document.getElementById('logContainer').innerHTML = '<div class="empty-state"><div class="empty-state-icon">⚠️</div><h2>No logs parsed</h2><p>Expected formats:<br/><code>[LEVEL] [ThreadID] Message</code><br/><code>[LEVEL] Message</code></p><p style="font-size: 11px; margin-top: 10px; opacity: 0.7;">Open browser console (F12) for details</p></div>';
                     }
-                } else if (current) {
-                    // Continuation line (exception or multiline message)
-                    current.exception += line + '\n';
-                } else {
-                    if (i < 5 && line.trim()) {
-                        console.log('Line', i, 'no timestamp found:', line.substring(0, 100));
-                    }
+                } catch (error) {
+                    console.error('Error parsing logs:', error);
+                    this.showToast('Error parsing log file: ' + error.message);
                 }
             }
-
-            // Add the last log
-            if (current) {
-                this.logs.push(current);
-            }
-            
-            console.log('Total logs parsed:', this.logs.length);
-            
-            if (this.logs.length > 0) {
-                this.logs.sort((a, b) => a.date - b.date);
+            toggleFilter(btn) {
+                const lvl = btn.dataset.level;
+                this.filters[lvl] = !this.filters[lvl];
+                btn.classList.toggle('active');
                 this.currentPage = 1;
                 this.applyFilters();
-                this.updateStats();
-                
-                const formatCounts = {
-                    format1: this.logs.filter(l => l.format === 'format1').length,
-                    format2: this.logs.filter(l => l.format === 'format2').length,
-                    withCorrelation: this.logs.filter(l => l.correlationId).length
-                };
-                console.log('Parsed formats:', formatCounts);
-                
-                let formatMsg = 'Parsed ' + this.logs.length + ' logs';
-                if (formatCounts.format1 > 0) formatMsg += ' (' + formatCounts.format1 + ' with Thread ID';
-                if (formatCounts.format2 > 0) formatMsg += (formatCounts.format1 > 0 ? ', ' : ' (') + formatCounts.format2 + ' without Thread ID';
-                if (formatCounts.withCorrelation > 0) formatMsg += ', ' + formatCounts.withCorrelation + ' with Correlation ID';
-                formatMsg += ')';
-                
-                this.showToast(formatMsg);
-            } else {
-                console.error('No logs could be parsed from the file');
-                document.getElementById('logContainer').innerHTML = '<div class="empty-state"><div class="empty-state-icon">⚠️</div><h2>No logs parsed</h2><p>Expected formats:<br/><code>[LEVEL] [ThreadID] Message</code><br/><code>[LEVEL] Message</code></p><p style="font-size: 11px; margin-top: 10px; opacity: 0.7;">Open browser console (F12) for details</p></div>';
             }
-        } catch (error) {
-            console.error('Error parsing logs:', error);
-            this.showToast('Error parsing log file: ' + error.message);
-        }
-    }
-    toggleFilter(btn) {
-        const lvl = btn.dataset.level;
-        this.filters[lvl] = !this.filters[lvl];
-        btn.classList.toggle('active');
-        this.currentPage = 1;
-        this.applyFilters();
-    }
-    search(q) {
-        this.searchQuery = q.toLowerCase();
-        this.currentPage = 1;
-        this.applyFilters();
-    }
-    setDateFrom(v) {
-        this.dateFrom = v ? new Date(v) : null;
-        this.applyFilters();
-    }
-    setDateTo(v) {
-        this.dateTo = v ? new Date(v) : null;
-        this.applyFilters();
-    }
-    clearDateFilter() {
-        this.dateFrom = this.dateTo = null;
-        document.getElementById('dateFrom').value = '';
-        document.getElementById('dateTo').value = '';
-        this.applyFilters();
-        this.showToast('Date filters cleared');
-    }
-    applyFilters() {
-        this.filteredLogs = this.logs.filter(log => {
-            if (!this.filters[log.level]) return false;
-            if (this.dateFrom && log.date < this.dateFrom) return false;
-            if (this.dateTo && log.date > this.dateTo) return false;
-            if (this.searchQuery) {
-                const txt = (log.message + ' ' + log.exception).toLowerCase();
-                if (!txt.includes(this.searchQuery)) return false;
+            search(q) {
+                this.searchQuery = q.toLowerCase();
+                this.currentPage = 1;
+                this.applyFilters();
             }
-            return true;
-        });
-        this.render();
-    }
-    changePageSize(size) {
-        this.logsPerPage = parseInt(size);
-        this.currentPage = 1;
-        this.render();
-        this.showToast('Page size changed to ' + size);
-    }
-    firstPage() {
-        this.currentPage = 1;
-        this.render();
-    }
-    lastPage() {
-        this.currentPage = Math.ceil(this.filteredLogs.length / this.logsPerPage);
-        this.render();
-    }
-    prevPage() {
-        if (this.currentPage > 1) {
-            this.currentPage--;
-            this.render();
-        }
-    }
-    nextPage() {
-        const total = Math.ceil(this.filteredLogs.length / this.logsPerPage);
-        if (this.currentPage < total) {
-            this.currentPage++;
-            this.render();
-        }
-    }
-    exportLogs() {
-        if (!this.filteredLogs.length) {
-            this.showToast('No logs to export');
-            return;
-        }
-        this.showLoader('Exporting ' + this.filteredLogs.length + ' logs...');
-        setTimeout(() => {
-            let txt = '';
-            this.filteredLogs.forEach(log => {
-                const lvl = { debug: 'DBG', information: 'INF', warning: 'WRN', error: 'ERR' }[log.level];
-                txt += log.timestamp + ' [' + lvl + '] [' + log.threadId + '] ' + log.message + '\n';
-                if (log.exception.trim()) txt += log.exception;
-            });
-            const blob = new Blob([txt], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'logs-' + new Date().toISOString().split('T')[0] + '.txt';
-            a.click();
-            URL.revokeObjectURL(url);
-            this.hideLoader();
-            this.showToast('Exported ' + this.filteredLogs.length + ' logs');
-        }, 300);
-    }
-    render() {
-        const container = document.getElementById('logContainer');
-        const pagination = document.getElementById('pagination');
-        if (!this.filteredLogs.length) {
-            container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><h2>' + (this.logs.length ? 'No matches' : 'No logs loaded') + '</h2></div>';
-            pagination.style.display = 'none';
-            document.getElementById('visibleCount').textContent = '0';
-            return;
-        }
-        const start = (this.currentPage - 1) * this.logsPerPage;
-        const end = Math.min(start + this.logsPerPage, this.filteredLogs.length);
-        const page = this.filteredLogs.slice(start, end);
-        container.innerHTML = page.map(log => this.renderLog(log)).join('');
-        container.querySelectorAll('.log-entry').forEach((el, i) => {
-            el.addEventListener('click', () => this.showModal(page[i]));
-        });
-        const total = Math.ceil(this.filteredLogs.length / this.logsPerPage);
-        if (total > 1) {
-            pagination.style.display = 'flex';
-            document.getElementById('pageInfo').textContent = 'Page ' + this.currentPage + ' of ' + total;
-            document.getElementById('prevBtn').disabled = this.currentPage === 1;
-            document.getElementById('nextBtn').disabled = this.currentPage === total;
-            document.getElementById('firstBtn').disabled = this.currentPage === 1;
-            document.getElementById('lastBtn').disabled = this.currentPage === total;
-        } else {
-            pagination.style.display = 'none';
-        }
-        document.getElementById('visibleCount').textContent = this.filteredLogs.length;
-    }
-    showModal(log) {
-        this.currentModalLog = log;
-        document.getElementById('modalTimestamp').textContent = this.formatDate(log.date);
-        document.getElementById('modalLevel').textContent = log.level.toUpperCase();
-        document.getElementById('modalThread').textContent = log.correlationId || log.threadId;
-        document.getElementById('modalLength').textContent = log.message.length + ' characters';
-        document.getElementById('modalMessage').textContent = log.message;
-        if (log.exception.trim()) {
-            document.getElementById('modalExceptionSection').style.display = 'block';
-            document.getElementById('modalException').textContent = log.exception;
-        } else {
-            document.getElementById('modalExceptionSection').style.display = 'none';
-        }
-        document.getElementById('logModal').classList.add('show');
-    }
-    closeModal() {
-        document.getElementById('logModal').classList.remove('show');
-    }
-    copyModalLog() {
-        if (this.currentModalLog) {
-            this.copyLog(this.currentModalLog);
-            this.closeModal();
-        }
-    }
-    formatDate(date) {
-        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-        const dayName = days[date.getDay()];
-        const day = date.getDate();
-        const month = months[date.getMonth()];
-        const year = date.getFullYear();
-        const hours = String(date.getHours()).padStart(2, '0');
-        const minutes = String(date.getMinutes()).padStart(2, '0');
-        const seconds = String(date.getSeconds()).padStart(2, '0');
-        const ms = String(date.getMilliseconds()).padStart(3, '0');
-        return dayName + ', ' + month + ' ' + day + ', ' + year + ' at ' + hours + ':' + minutes + ':' + seconds + '.' + ms;
-    }
-    renderLog(log) {
-        const msg = this.highlight(this.escape(log.message));
-        const exc = this.highlight(this.escape(log.exception));
-        const threadDisplay = log.correlationId ? log.correlationId.substring(0, 8) + '...' : log.threadId;
-        return '<div class="log-entry ' + log.level + '">' +
-            '<div class="log-header">' +
-            '<span class="log-timestamp">' + this.escape(log.timestamp) + '</span>' +
-            '<span class="log-level ' + log.level + '">' + log.level.toUpperCase() + '</span>' +
-            '</div>' +
-            '<div class="log-message">' + msg + '</div>' +
-            '<div class="log-meta">' +
-            '<span>Thread: ' + this.escape(threadDisplay) + '</span>' +
-            '<span>' + log.message.length + ' chars</span>' +
-            (log.format === 'format2' ? '<span title="' + this.escape(log.correlationId) + '">📍 Correlation ID</span>' : '') +
-            '</div>' +
-            (log.exception.trim() ? '<div class="log-exception">' + exc + '</div>' : '') +
-            '</div>';
-    }
-    escape(txt) {
-        const div = document.createElement('div');
-        div.textContent = txt;
-        return div.innerHTML;
-    }
-    highlight(txt) {
-        if (!this.searchQuery) return txt;
-        const re = new RegExp('(' + this.searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\        container.innerHTML = page.map(log => this') + ')', 'gi');
-        return txt.replace(re, '<span class="highlight">$1</span>');
-    }
-    copyLog(log) {
-        const lvl = { debug: 'DBG', information: 'INF', warning: 'WRN', error: 'ERR' }[log.level];
-        let txt = log.timestamp + ' [' + lvl + '] [' + log.threadId + '] ' + log.message;
-        if (log.exception.trim()) txt += '\n' + log.exception;
-        navigator.clipboard.writeText(txt).then(() => this.showToast('Copied to clipboard'));
-    }
-    updateStats() {
-        const counts = { debug: 0, information: 0, warning: 0, error: 0 };
-        this.logs.forEach(log => counts[log.level]++);
-        
-        // Update stats
-        document.getElementById('fileCount').textContent = this.loadedFiles;
-        document.getElementById('totalCount').textContent = this.logs.length;
-        document.getElementById('debugCount').textContent = counts.debug;
-        document.getElementById('infoCount').textContent = counts.information;
-        document.getElementById('warningCount').textContent = counts.warning;
-        document.getElementById('errorCount').textContent = counts.error;
-
-        // Update file names list
-        const fileList = document.getElementById('fileList');
-        if (fileList) {
-            fileList.innerHTML = this.loadedFileNames.map(name => 
-                `<div class="file-item"><span class="file-icon">📄</span>${this.escape(name)}</div>`
-            ).join('');
-        }
-    }
-    clear() {
-        if (!confirm('Clear all logs?')) return;
-        this.logs = [];
-        this.filteredLogs = [];
-        this.searchQuery = '';
-        this.dateFrom = this.dateTo = null;
-        this.loadedFiles = 0;
-        this.currentPage = 1;
-        this.currentModalLog = null;
-        document.getElementById('searchBox').value = '';
-        document.getElementById('fileInput').value = '';
-        document.getElementById('dateFrom').value = '';
-        document.getElementById('dateTo').value = '';
-        document.getElementById('logContainer').innerHTML = '<div class="empty-state"><div class="empty-state-icon">📋</div><h2>No logs loaded</h2><p>Load log files to get started</p></div>';
-        document.getElementById('pagination').style.display = 'none';
-        this.updateStats();
-        this.showToast('All logs cleared');
-    }
-    showReports() {
-        console.log('showReports called, logs count:', this.logs.length);
-        if (!this.logs.length) {
-            this.showToast('No logs available for analysis');
-            return;
-        }
-        this.showLoader('Generating analytics report...');
-        setTimeout(() => {
-            try {
-                const report = this.generateReport();
-                document.getElementById('reportsContent').innerHTML = report;
-                document.getElementById('reportsModal').classList.add('show');
-                this.hideLoader();
-                console.log('Reports modal should be visible now');
-            } catch (error) {
-                console.error('Error generating report:', error);
-                this.hideLoader();
-                this.showToast('Error generating report');
+            setDateFrom(v) {
+                this.dateFrom = v ? new Date(v) : null;
+                this.applyFilters();
             }
-        }, 100);
-    }
-    closeReports() {
-        document.getElementById('reportsModal').classList.remove('show');
-    }
-    generateReport() {
-        console.log('Generating report...');
-        const errors = this.logs.filter(l => l.level === 'error');
-        const warnings = this.logs.filter(l => l.level === 'warning');
-        const info = this.logs.filter(l => l.level === 'information');
-        
-        console.log('Errors:', errors.length, 'Warnings:', warnings.length);
-        
-        const errorMessages = {};
-        errors.forEach(log => {
-            const msg = log.message.substring(0, 100);
-            errorMessages[msg] = (errorMessages[msg] || 0) + 1;
-        });
-        const topErrors = Object.entries(errorMessages).sort((a, b) => b[1] - a[1]).slice(0, 10);
-        
-        const apiPattern = /(?:GET|POST|PUT|DELETE|PATCH)\s+([^\s]+)/gi;
-        const apiCalls = {};
-        const apiPaths = {};
-        const requestResponse = {};
-        
-        this.logs.forEach(log => {
-            const msg = log.message;
-            
-            // Pattern 1: HTTP: GET /api/path
-            let match;
-            apiPattern.lastIndex = 0;
-            while ((match = apiPattern.exec(msg)) !== null) {
-                const fullEndpoint = match[0]; // e.g., "GET /api/SaleTransaction"
-                const path = match[1];
-                apiCalls[fullEndpoint] = (apiCalls[fullEndpoint] || 0) + 1;
+            setDateTo(v) {
+                this.dateTo = v ? new Date(v) : null;
+                this.applyFilters();
             }
-            
-            // Pattern 2: Path: /api/Widgets/1
-            const pathMatch = msg.match(/Path:\s*([^\s]+)/i);
-            if (pathMatch) {
-                const path = pathMatch[1];
-                apiPaths[path] = (apiPaths[path] || 0) + 1;
+            clearDateFilter() {
+                this.dateFrom = this.dateTo = null;
+                document.getElementById('dateFrom').value = '';
+                document.getElementById('dateTo').value = '';
+                this.applyFilters();
+                this.showToast('Date filters cleared');
             }
-            
-            // Pattern 3: Request/Response patterns
-            const requestMatch = msg.match(/Request:\s*([^\s]+)/i);
-            const responseMatch = msg.match(/Response:\s*([^\s]+)/i);
-            if (requestMatch || responseMatch) {
-                const key = (requestMatch ? requestMatch[1] : '') + ' → ' + (responseMatch ? responseMatch[1] : '');
-                requestResponse[key] = (requestResponse[key] || 0) + 1;
-            }
-        });
-        
-        const topAPIs = Object.entries(apiCalls).sort((a, b) => b[1] - a[1]).slice(0, 15);
-        const topPaths = Object.entries(apiPaths).sort((a, b) => b[1] - a[1]).slice(0, 15);
-        const topRequestResponse = Object.entries(requestResponse).sort((a, b) => b[1] - a[1]).slice(0, 15);
-        
-        const threadActivity = {};
-        this.logs.forEach(log => {
-            threadActivity[log.threadId] = (threadActivity[log.threadId] || 0) + 1;
-        });
-        const topThreads = Object.entries(threadActivity).sort((a, b) => b[1] - a[1]).slice(0, 10);
-        
-        const hourly = {};
-        this.logs.forEach(log => {
-            const hour = log.date.getHours();
-            hourly[hour] = (hourly[hour] || 0) + 1;
-        });
-        
-        const exceptionTypes = {};
-        const exceptionAPIs = {};
-        const httpErrors = {};
-        this.logs.forEach(log => {
-            if (log.exception.trim()) {
-                const firstLine = log.exception.split('\n')[0];
-                const exMatch = firstLine.match(/^([^\n:]+Exception[^\n:]*)/i);
-                if (exMatch) {
-                    const type = exMatch[1].trim();
-                    exceptionTypes[type] = (exceptionTypes[type] || 0) + 1;
-                    
-                    const apiMatch = log.message.match(/(?:GET|POST|PUT|DELETE|PATCH)\s+([^\s]+)/i);
-                    if (apiMatch) {
-                        const key = type + '|||' + apiMatch[1];
-                        exceptionAPIs[key] = (exceptionAPIs[key] || 0) + 1;
+            applyFilters() {
+                this.filteredLogs = this.logs.filter(log => {
+                    if (!this.filters[log.level]) return false;
+                    if (this.dateFrom && log.date < this.dateFrom) return false;
+                    if (this.dateTo && log.date > this.dateTo) return false;
+                    if (this.searchQuery) {
+                        const txt = (log.message + ' ' + log.exception).toLowerCase();
+                        if (!txt.includes(this.searchQuery)) return false;
                     }
+                    return true;
+                });
+                this.render();
+            }
+            changePageSize(size) {
+                this.logsPerPage = parseInt(size);
+                this.currentPage = 1;
+                this.render();
+                this.showToast('Page size changed to ' + size);
+            }
+            firstPage() {
+                this.currentPage = 1;
+                this.render();
+            }
+            lastPage() {
+                this.currentPage = Math.ceil(this.filteredLogs.length / this.logsPerPage);
+                this.render();
+            }
+            prevPage() {
+                if (this.currentPage > 1) {
+                    this.currentPage--;
+                    this.render();
                 }
             }
-            
-            const httpMatch = log.message.match(/HTTP:\s+(GET|POST|PUT|DELETE|PATCH)\s+([^\s]+)/i);
-            const typeMatch = log.message.match(/TYPE:\s+([^\s]+)/i);
-            const reasonMatch = log.message.match(/REASON:\s+(.+)/i);
-            
-            if (httpMatch && typeMatch) {
-                const method = httpMatch[1];
-                const endpoint = httpMatch[2];
-                const errorType = typeMatch[1];
-                const reason = reasonMatch ? reasonMatch[1].trim() : 'Unknown';
-                
-                const key = method + ' ' + endpoint + '|||' + errorType + '|||' + reason;
-                httpErrors[key] = (httpErrors[key] || 0) + 1;
-            }
-        });
-        const topExceptions = Object.entries(exceptionTypes).sort((a, b) => b[1] - a[1]).slice(0, 10);
-        const topExceptionAPIs = Object.entries(exceptionAPIs).sort((a, b) => b[1] - a[1]).slice(0, 15);
-        const topHttpErrors = Object.entries(httpErrors).sort((a, b) => b[1] - a[1]).slice(0, 15);
-        
-        const dateRange = this.logs.length > 0 
-            ? this.formatDate(this.logs[0].date) + ' to ' + this.formatDate(this.logs[this.logs.length - 1].date)
-            : 'N/A';
-        const errorRate = this.logs.length > 0 ? ((errors.length / this.logs.length) * 100).toFixed(2) : '0.00';
-        const warningRate = this.logs.length > 0 ? ((warnings.length / this.logs.length) * 100).toFixed(2) : '0.00';
-        
-        let html = '<div class="report-section">';
-        html += '<div class="report-title">📈 Overview</div>';
-        html += '<div class="report-grid">';
-        html += '<div class="report-card"><div class="report-card-title">Total Logs</div><div class="report-card-value">' + this.logs.length.toLocaleString() + '</div></div>';
-        html += '<div class="report-card"><div class="report-card-title">Error Rate</div><div class="report-card-value">' + errorRate + '%</div></div>';
-        html += '<div class="report-card"><div class="report-card-title">Warning Rate</div><div class="report-card-value">' + warningRate + '%</div></div>';
-        html += '</div>';
-        html += '<div style="margin-top: 15px; padding: 15px; background: rgba(0, 122, 204, 0.1); border-radius: 8px;"><strong>Date Range:</strong> ' + dateRange + '</div>';
-        html += '</div>';
-        
-        if (topErrors.length > 0) {
-            html += '<div class="report-section">';
-            html += '<div class="report-title">🔴 Top 10 Repeated Errors</div>';
-            html += '<table class="report-table"><thead><tr><th>Error Message</th><th>Count</th><th>Percentage</th></tr></thead><tbody>';
-            topErrors.forEach(([msg, count]) => {
-                const pct = ((count / errors.length) * 100).toFixed(1);
-                html += '<tr><td>' + this.escape(msg) + '</td><td><strong>' + count + '</strong></td><td>' + pct + '%<div class="report-bar" style="width: ' + Math.min(parseFloat(pct), 100) + '%"></div></td></tr>';
-            });
-            html += '</tbody></table></div>';
-        }
-        
-        if (topPaths.length > 0) {
-            html += '<div class="report-section">';
-            html += '<div class="report-title">🔗 Top 15 API Paths</div>';
-            html += '<p style="opacity: 0.7; font-size: 12px; margin-bottom: 10px;">Extracted from logs containing "Path: /api/..."</p>';
-            html += '<table class="report-table"><thead><tr><th>API Path</th><th>Calls</th><th>Percentage</th></tr></thead><tbody>';
-            const totalPathCalls = Object.values(apiPaths).reduce((a, b) => a + b, 0);
-            topPaths.forEach(([path, count]) => {
-                const pct = ((count / totalPathCalls) * 100).toFixed(1);
-                html += '<tr><td><code>' + this.escape(path) + '</code></td><td><strong>' + count + '</strong></td><td>' + pct + '%<div class="report-bar" style="width: ' + Math.min(parseFloat(pct), 100) + '%"></div></td></tr>';
-            });
-            html += '</tbody></table></div>';
-        }
-        
-        if (topAPIs.length > 0) {
-            html += '<div class="report-section">';
-            html += '<div class="report-title">🌐 Top 15 HTTP Endpoints</div>';
-            html += '<p style="opacity: 0.7; font-size: 12px; margin-bottom: 10px;">Extracted from logs containing "GET/POST/PUT/DELETE/PATCH /api/..."</p>';
-            html += '<table class="report-table"><thead><tr><th>HTTP Method + Endpoint</th><th>Calls</th><th>Percentage</th></tr></thead><tbody>';
-            const totalAPICalls = Object.values(apiCalls).reduce((a, b) => a + b, 0);
-            topAPIs.forEach(([endpoint, count]) => {
-                const pct = ((count / totalAPICalls) * 100).toFixed(1);
-                html += '<tr><td><code style="font-weight: 600;">' + this.escape(endpoint) + '</code></td><td><strong>' + count + '</strong></td><td>' + pct + '%<div class="report-bar" style="width: ' + Math.min(parseFloat(pct), 100) + '%"></div></td></tr>';
-            });
-            html += '</tbody></table></div>';
-        }
-        
-        if (topRequestResponse.length > 0) {
-            html += '<div class="report-section">';
-            html += '<div class="report-title">📨 Top 15 Request/Response Patterns</div>';
-            html += '<p style="opacity: 0.7; font-size: 12px; margin-bottom: 10px;">Extracted from logs containing "Request: ... Response: ..."</p>';
-            html += '<table class="report-table"><thead><tr><th>Request → Response</th><th>Count</th></tr></thead><tbody>';
-            topRequestResponse.forEach(([pattern, count]) => {
-                html += '<tr><td><code style="font-size: 11px;">' + this.escape(pattern) + '</code></td><td><strong>' + count + '</strong></td></tr>';
-            });
-            html += '</tbody></table></div>';
-        }
-        
-        if (topHttpErrors.length > 0) {
-            html += '<div class="report-section">';
-            html += '<div class="report-title">⚠️ Top 15 HTTP Errors</div>';
-            html += '<p style="opacity: 0.7; font-size: 12px; margin-bottom: 10px;">Extracted from logs containing "HTTP: ... TYPE: ... REASON: ..."</p>';
-            html += '<table class="report-table"><thead><tr><th>HTTP Endpoint</th><th>Error Type</th><th>Reason</th><th>Count</th></tr></thead><tbody>';
-            topHttpErrors.forEach(([key, count]) => {
-                const [endpoint, errorType, reason] = key.split('|||');
-                html += '<tr><td><code>' + this.escape(endpoint) + '</code></td><td><strong style="color: #ff6b6b;">' + this.escape(errorType) + '</strong></td><td style="font-size: 12px;">' + this.escape(reason) + '</td><td><strong>' + count + '</strong></td></tr>';
-            });
-            html += '</tbody></table></div>';
-        }
-        
-        if (topExceptions.length > 0) {
-            html += '<div class="report-section">';
-            html += '<div class="report-title">💥 Top 10 Exception Types</div>';
-            html += '<table class="report-table"><thead><tr><th>Exception Type</th><th>Count</th><th>Percentage</th></tr></thead><tbody>';
-            const totalExceptions = Object.values(exceptionTypes).reduce((a, b) => a + b, 0);
-            topExceptions.forEach(([type, count]) => {
-                const pct = ((count / totalExceptions) * 100).toFixed(1);
-                html += '<tr><td><code>' + this.escape(type) + '</code></td><td><strong>' + count + '</strong></td><td>' + pct + '%<div class="report-bar" style="width: ' + Math.min(parseFloat(pct), 100) + '%"></div></td></tr>';
-            });
-            html += '</tbody></table></div>';
-        }
-        
-        if (topExceptionAPIs.length > 0) {
-            html += '<div class="report-section">';
-            html += '<div class="report-title">🔗 Exceptions by API Endpoint</div>';
-            html += '<table class="report-table"><thead><tr><th>Exception</th><th>API Endpoint</th><th>Count</th></tr></thead><tbody>';
-            topExceptionAPIs.forEach(([key, count]) => {
-                const [exception, api] = key.split('|||');
-                html += '<tr><td><code style="font-size: 11px;">' + this.escape(exception) + '</code></td><td><code>' + this.escape(api) + '</code></td><td><strong>' + count + '</strong></td></tr>';
-            });
-            html += '</tbody></table></div>';
-        }
-        
-        html += '<div class="report-section">';
-        html += '<div class="report-title">🧵 Top 10 Active Threads</div>';
-        html += '<table class="report-table"><thead><tr><th>Thread ID</th><th>Log Count</th><th>Percentage</th></tr></thead><tbody>';
-        topThreads.forEach(([thread, count]) => {
-            const pct = ((count / this.logs.length) * 100).toFixed(1);
-            html += '<tr><td><strong>' + thread + '</strong></td><td>' + count + '</td><td>' + pct + '%<div class="report-bar" style="width: ' + Math.min(parseFloat(pct), 100) + '%"></div></td></tr>';
-        });
-        html += '</tbody></table></div>';
-        
-        html += '<div class="report-section">';
-        html += '<div class="report-title">⏰ Hourly Activity Distribution</div>';
-        html += '<div class="chart-container">';
-        const maxHourly = Math.max(...Object.values(hourly), 1);
-        for (let h = 0; h < 24; h++) {
-            const count = hourly[h] || 0;
-            const pct = (count / maxHourly) * 100;
-            html += '<div class="timeline-item"><div class="timeline-time">' + String(h).padStart(2, '0') + ':00 - ' + String(h).padStart(2, '0') + ':59</div><div class="timeline-count">' + count + ' logs <span class="report-percentage">(' + ((count / this.logs.length) * 100).toFixed(1) + '%)</span></div><div class="report-bar" style="width: ' + pct + '%"></div></div>';
-        }
-        html += '</div></div>';
-        
-        console.log('Report generated, HTML length:', html.length);
-        return html;
-    }
-    exportReport() {
-        this.showLoader('Exporting analytics report...');
-        setTimeout(() => {
-            const errors = this.logs.filter(l => l.level === 'error');
-            const warnings = this.logs.filter(l => l.level === 'warning');
-            let txt = '='.repeat(80) + '\n';
-            txt += 'SERILOG ANALYTICS REPORT\n';
-            txt += '='.repeat(80) + '\n\n';
-            txt += 'Generated: ' + new Date().toLocaleString() + '\n';
-            txt += 'Total Logs: ' + this.logs.length.toLocaleString() + '\n';
-            txt += 'Date Range: ' + (this.logs.length > 0 ? this.formatDate(this.logs[0].date) + ' - ' + this.formatDate(this.logs[this.logs.length - 1].date) : 'N/A') + '\n';
-            txt += 'Error Rate: ' + ((errors.length / this.logs.length) * 100).toFixed(2) + '%\n';
-            txt += 'Warning Rate: ' + ((warnings.length / this.logs.length) * 100).toFixed(2) + '%\n\n';
-            txt += '-'.repeat(80) + '\n';
-            txt += 'LOG LEVEL BREAKDOWN\n';
-            txt += '-'.repeat(80) + '\n';
-            const counts = { debug: 0, information: 0, warning: 0, error: 0 };
-            this.logs.forEach(log => counts[log.level]++);
-            txt += 'Debug: ' + counts.debug + ' (' + ((counts.debug / this.logs.length) * 100).toFixed(1) + '%)\n';
-            txt += 'Information: ' + counts.information + ' (' + ((counts.information / this.logs.length) * 100).toFixed(1) + '%)\n';
-            txt += 'Warning: ' + counts.warning + ' (' + ((counts.warning / this.logs.length) * 100).toFixed(1) + '%)\n';
-            txt += 'Error: ' + counts.error + ' (' + ((counts.error / this.logs.length) * 100).toFixed(1) + '%)\n\n';
-            const errorMessages = {};
-            errors.forEach(log => {
-                const msg = log.message.substring(0, 100);
-                errorMessages[msg] = (errorMessages[msg] || 0) + 1;
-            });
-            const topErrors = Object.entries(errorMessages).sort((a, b) => b[1] - a[1]).slice(0, 10);
-            if (topErrors.length > 0) {
-                txt += '-'.repeat(80) + '\n';
-                txt += 'TOP 10 REPEATED ERRORS\n';
-                txt += '-'.repeat(80) + '\n';
-                topErrors.forEach(([msg, count], i) => {
-                    txt += (i + 1) + '. [' + count + 'x] ' + msg + '\n';
-                });
-                txt += '\n';
-            }
-            const apiPattern = /(?:GET|POST|PUT|DELETE|PATCH)\s+([^\s]+)/gi;
-            const apiCalls = {};
-            this.logs.forEach(log => {
-                let match;
-                while ((match = apiPattern.exec(log.message)) !== null) {
-                    apiCalls[match[1]] = (apiCalls[match[1]] || 0) + 1;
+            nextPage() {
+                const total = Math.ceil(this.filteredLogs.length / this.logsPerPage);
+                if (this.currentPage < total) {
+                    this.currentPage++;
+                    this.render();
                 }
-            });
-            const topAPIs = Object.entries(apiCalls).sort((a, b) => b[1] - a[1]).slice(0, 10);
-            if (topAPIs.length > 0) {
-                txt += '-'.repeat(80) + '\n';
-                txt += 'TOP 10 API ENDPOINTS\n';
-                txt += '-'.repeat(80) + '\n';
-                topAPIs.forEach(([endpoint, count], i) => {
-                    txt += (i + 1) + '. [' + count + 'x] ' + endpoint + '\n';
-                });
-                txt += '\n';
             }
-            const threadActivity = {};
-            this.logs.forEach(log => {
-                threadActivity[log.threadId] = (threadActivity[log.threadId] || 0) + 1;
-            });
-            const topThreads = Object.entries(threadActivity).sort((a, b) => b[1] - a[1]).slice(0, 10);
-            txt += '-'.repeat(80) + '\n';
-            txt += 'TOP 10 ACTIVE THREADS\n';
-            txt += '-'.repeat(80) + '\n';
-            topThreads.forEach(([thread, count], i) => {
-                txt += (i + 1) + '. Thread ' + thread + ': ' + count + ' logs\n';
-            });
-            txt += '\n';
-            txt += '='.repeat(80) + '\n';
-            txt += 'END OF REPORT\n';
-            txt += '='.repeat(80) + '\n';
-            const blob = new Blob([txt], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'serilog-analytics-report-' + new Date().toISOString().split('T')[0] + '.txt';
-            a.click();
-            URL.revokeObjectURL(url);
-            this.hideLoader();
-            this.showToast('Report exported successfully');
-        }, 500);
-    }
-}
-new LogViewer();
+            exportLogs() {
+                if (!this.filteredLogs.length) {
+                    this.showToast('No logs to export');
+                    return;
+                }
+                this.showLoader('Exporting ' + this.filteredLogs.length + ' logs...');
+                setTimeout(() => {
+                    let txt = '';
+                    this.filteredLogs.forEach(log => {
+                        const lvl = { debug: 'DBG', information: 'INF', warning: 'WRN', error: 'ERR' }[log.level];
+                        txt += log.timestamp + ' [' + lvl + '] [' + log.threadId + '] ' + log.message + '\n';
+                        if (log.exception.trim()) txt += log.exception;
+                    });
+                    const blob = new Blob([txt], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'logs-' + new Date().toISOString().split('T')[0] + '.txt';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    this.hideLoader();
+                    this.showToast('Exported ' + this.filteredLogs.length + ' logs');
+                }, 300);
+            }
+            render() {
+                const container = document.getElementById('logContainer');
+                const pagination = document.getElementById('pagination');
+                if (!this.filteredLogs.length) {
+                    container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><h2>' + (this.logs.length ? 'No matches' : 'No logs loaded') + '</h2></div>';
+                    pagination.style.display = 'none';
+                    document.getElementById('visibleCount').textContent = '0';
+                    return;
+                }
+                const start = (this.currentPage - 1) * this.logsPerPage;
+                const end = Math.min(start + this.logsPerPage, this.filteredLogs.length);
+                const page = this.filteredLogs.slice(start, end);
+                container.innerHTML = page.map(log => this.renderLog(log)).join('');
+                container.querySelectorAll('.log-entry').forEach((el, i) => {
+                    el.addEventListener('click', () => this.showModal(page[i]));
+                });
+                const total = Math.ceil(this.filteredLogs.length / this.logsPerPage);
+                if (total > 1) {
+                    pagination.style.display = 'flex';
+                    document.getElementById('pageInfo').textContent = 'Page ' + this.currentPage + ' of ' + total;
+                    document.getElementById('prevBtn').disabled = this.currentPage === 1;
+                    document.getElementById('nextBtn').disabled = this.currentPage === total;
+                    document.getElementById('firstBtn').disabled = this.currentPage === 1;
+                    document.getElementById('lastBtn').disabled = this.currentPage === total;
+                } else {
+                    pagination.style.display = 'none';
+                }
+                document.getElementById('visibleCount').textContent = this.filteredLogs.length;
+            }
+            showModal(log) {
+                this.currentModalLog = log;
+                document.getElementById('modalTimestamp').textContent = this.formatDate(log.date);
+                document.getElementById('modalLevel').textContent = log.level.toUpperCase();
+                document.getElementById('modalThread').textContent = log.correlationId || log.threadId;
+                document.getElementById('modalLength').textContent = log.message.length + ' characters';
+                document.getElementById('modalMessage').textContent = log.message;
+                if (log.exception.trim()) {
+                    document.getElementById('modalExceptionSection').style.display = 'block';
+                    document.getElementById('modalException').textContent = log.exception;
+                } else {
+                    document.getElementById('modalExceptionSection').style.display = 'none';
+                }
+                document.getElementById('logModal').classList.add('show');
+            }
+            closeModal() {
+                document.getElementById('logModal').classList.remove('show');
+            }
+            copyModalLog() {
+                if (this.currentModalLog) {
+                    this.copyLog(this.currentModalLog);
+                    this.closeModal();
+                }
+            }
+            formatDate(date) {
+                const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                const dayName = days[date.getDay()];
+                const day = date.getDate();
+                const month = months[date.getMonth()];
+                const year = date.getFullYear();
+                const hours = String(date.getHours()).padStart(2, '0');
+                const minutes = String(date.getMinutes()).padStart(2, '0');
+                const seconds = String(date.getSeconds()).padStart(2, '0');
+                const ms = String(date.getMilliseconds()).padStart(3, '0');
+                return dayName + ', ' + month + ' ' + day + ', ' + year + ' at ' + hours + ':' + minutes + ':' + seconds + '.' + ms;
+            }
+            renderLog(log) {
+                const msg = this.highlight(this.escape(log.message));
+                const exc = this.highlight(this.escape(log.exception));
+                const threadDisplay = log.correlationId ? log.correlationId.substring(0, 8) + '...' : log.threadId;
+                return '<div class="log-entry ' + log.level + '">' +
+                    '<div class="log-header">' +
+                    '<span class="log-timestamp">' + this.escape(log.timestamp) + '</span>' +
+                    '<span class="log-level ' + log.level + '">' + log.level.toUpperCase() + '</span>' +
+                    '</div>' +
+                    '<div class="log-message">' + msg + '</div>' +
+                    '<div class="log-meta">' +
+                    '<span>Thread: ' + this.escape(threadDisplay) + '</span>' +
+                    '<span>' + log.message.length + ' chars</span>' +
+                    (log.format === 'format2' ? '<span title="' + this.escape(log.correlationId) + '">📍 Correlation ID</span>' : '') +
+                    '</div>' +
+                    (log.exception.trim() ? '<div class="log-exception">' + exc + '</div>' : '') +
+                    '</div>';
+            }
+            escape(txt) {
+                const div = document.createElement('div');
+                div.textContent = txt;
+                return div.innerHTML;
+            }
+            highlight(txt) {
+                if (!this.searchQuery) return txt;
+                const re = new RegExp('(' + this.searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\        container.innerHTML = page.map(log => this') + ')', 'gi');
+                return txt.replace(re, '<span class="highlight">$1</span>');
+            }
+            copyLog(log) {
+                const lvl = { debug: 'DBG', information: 'INF', warning: 'WRN', error: 'ERR' }[log.level];
+                let txt = log.timestamp + ' [' + lvl + '] [' + log.threadId + '] ' + log.message;
+                if (log.exception.trim()) txt += '\n' + log.exception;
+                navigator.clipboard.writeText(txt).then(() => this.showToast('Copied to clipboard'));
+            }
+            updateStats() {
+                const counts = { debug: 0, information: 0, warning: 0, error: 0 };
+                this.logs.forEach(log => counts[log.level]++);
+
+                // Update stats
+                document.getElementById('fileCount').textContent = this.loadedFiles;
+                document.getElementById('totalCount').textContent = this.logs.length;
+                document.getElementById('debugCount').textContent = counts.debug;
+                document.getElementById('infoCount').textContent = counts.information;
+                document.getElementById('warningCount').textContent = counts.warning;
+                document.getElementById('errorCount').textContent = counts.error;
+
+                // Update file names list
+                const fileList = document.getElementById('fileList');
+                if (fileList) {
+                    fileList.innerHTML = this.loadedFileNames.map(name =>
+                        `<div class="file-item"><span class="file-icon">📄</span>${this.escape(name)}</div>`
+                    ).join('');
+                }
+            }
+            clear() {
+                if (!confirm('Clear all logs?')) return;
+                this.logs = [];
+                this.filteredLogs = [];
+                this.searchQuery = '';
+                this.dateFrom = this.dateTo = null;
+                this.loadedFiles = 0;
+                this.currentPage = 1;
+                this.currentModalLog = null;
+                document.getElementById('searchBox').value = '';
+                document.getElementById('fileInput').value = '';
+                document.getElementById('dateFrom').value = '';
+                document.getElementById('dateTo').value = '';
+                document.getElementById('logContainer').innerHTML = '<div class="empty-state"><div class="empty-state-icon">📋</div><h2>No logs loaded</h2><p>Load log files to get started</p></div>';
+                document.getElementById('pagination').style.display = 'none';
+                this.updateStats();
+                this.showToast('All logs cleared');
+            }
+            showReports() {
+                console.log('showReports called, logs count:', this.logs.length);
+                if (!this.logs.length) {
+                    this.showToast('No logs available for analysis');
+                    return;
+                }
+                this.showLoader('Generating analytics report...');
+                setTimeout(() => {
+                    try {
+                        const report = this.generateReport();
+                        document.getElementById('reportsContent').innerHTML = report;
+                        document.getElementById('reportsModal').classList.add('show');
+                        this.hideLoader();
+                        console.log('Reports modal should be visible now');
+                    } catch (error) {
+                        console.error('Error generating report:', error);
+                        this.hideLoader();
+                        this.showToast('Error generating report');
+                    }
+                }, 100);
+            }
+            closeReports() {
+                document.getElementById('reportsModal').classList.remove('show');
+            }
+            generateReport() {
+                console.log('Generating report...');
+                const errors = this.logs.filter(l => l.level === 'error');
+                const warnings = this.logs.filter(l => l.level === 'warning');
+                const info = this.logs.filter(l => l.level === 'information');
+
+                console.log('Errors:', errors.length, 'Warnings:', warnings.length);
+
+                const errorMessages = {};
+                errors.forEach(log => {
+                    const msg = log.message.substring(0, 100);
+                    errorMessages[msg] = (errorMessages[msg] || 0) + 1;
+                });
+                const topErrors = Object.entries(errorMessages).sort((a, b) => b[1] - a[1]).slice(0, 10);
+
+                const apiPattern = /(?:GET|POST|PUT|DELETE|PATCH)\s+([^\s]+)/gi;
+                const apiCalls = {};
+                const apiPaths = {};
+                const requestResponse = {};
+
+                this.logs.forEach(log => {
+                    const msg = log.message;
+
+                    // Pattern 1: HTTP: GET /api/path
+                    let match;
+                    apiPattern.lastIndex = 0;
+                    while ((match = apiPattern.exec(msg)) !== null) {
+                        const fullEndpoint = match[0]; // e.g., "GET /api/SaleTransaction"
+                        const path = match[1];
+                        apiCalls[fullEndpoint] = (apiCalls[fullEndpoint] || 0) + 1;
+                    }
+
+                    // Pattern 2: Path: /api/Widgets/1
+                    const pathMatch = msg.match(/Path:\s*([^\s]+)/i);
+                    if (pathMatch) {
+                        const path = pathMatch[1];
+                        apiPaths[path] = (apiPaths[path] || 0) + 1;
+                    }
+
+                    // Pattern 3: Request/Response patterns
+                    const requestMatch = msg.match(/Request:\s*([^\s]+)/i);
+                    const responseMatch = msg.match(/Response:\s*([^\s]+)/i);
+                    if (requestMatch || responseMatch) {
+                        const key = (requestMatch ? requestMatch[1] : '') + ' → ' + (responseMatch ? responseMatch[1] : '');
+                        requestResponse[key] = (requestResponse[key] || 0) + 1;
+                    }
+                });
+
+                const topAPIs = Object.entries(apiCalls).sort((a, b) => b[1] - a[1]).slice(0, 15);
+                const topPaths = Object.entries(apiPaths).sort((a, b) => b[1] - a[1]).slice(0, 15);
+                const topRequestResponse = Object.entries(requestResponse).sort((a, b) => b[1] - a[1]).slice(0, 15);
+
+                const threadActivity = {};
+                this.logs.forEach(log => {
+                    threadActivity[log.threadId] = (threadActivity[log.threadId] || 0) + 1;
+                });
+                const topThreads = Object.entries(threadActivity).sort((a, b) => b[1] - a[1]).slice(0, 10);
+
+                const hourly = {};
+                this.logs.forEach(log => {
+                    const hour = log.date.getHours();
+                    hourly[hour] = (hourly[hour] || 0) + 1;
+                });
+
+                const exceptionTypes = {};
+                const exceptionAPIs = {};
+                const httpErrors = {};
+                this.logs.forEach(log => {
+                    if (log.exception.trim()) {
+                        const firstLine = log.exception.split('\n')[0];
+                        const exMatch = firstLine.match(/^([^\n:]+Exception[^\n:]*)/i);
+                        if (exMatch) {
+                            const type = exMatch[1].trim();
+                            exceptionTypes[type] = (exceptionTypes[type] || 0) + 1;
+
+                            const apiMatch = log.message.match(/(?:GET|POST|PUT|DELETE|PATCH)\s+([^\s]+)/i);
+                            if (apiMatch) {
+                                const key = type + '|||' + apiMatch[1];
+                                exceptionAPIs[key] = (exceptionAPIs[key] || 0) + 1;
+                            }
+                        }
+                    }
+
+                    const httpMatch = log.message.match(/HTTP:\s+(GET|POST|PUT|DELETE|PATCH)\s+([^\s]+)/i);
+                    const typeMatch = log.message.match(/TYPE:\s+([^\s]+)/i);
+                    const reasonMatch = log.message.match(/REASON:\s+(.+)/i);
+
+                    if (httpMatch && typeMatch) {
+                        const method = httpMatch[1];
+                        const endpoint = httpMatch[2];
+                        const errorType = typeMatch[1];
+                        const reason = reasonMatch ? reasonMatch[1].trim() : 'Unknown';
+
+                        const key = method + ' ' + endpoint + '|||' + errorType + '|||' + reason;
+                        httpErrors[key] = (httpErrors[key] || 0) + 1;
+                    }
+                });
+                const topExceptions = Object.entries(exceptionTypes).sort((a, b) => b[1] - a[1]).slice(0, 10);
+                const topExceptionAPIs = Object.entries(exceptionAPIs).sort((a, b) => b[1] - a[1]).slice(0, 15);
+                const topHttpErrors = Object.entries(httpErrors).sort((a, b) => b[1] - a[1]).slice(0, 15);
+
+                const dateRange = this.logs.length > 0
+                    ? this.formatDate(this.logs[0].date) + ' to ' + this.formatDate(this.logs[this.logs.length - 1].date)
+                    : 'N/A';
+                const errorRate = this.logs.length > 0 ? ((errors.length / this.logs.length) * 100).toFixed(2) : '0.00';
+                const warningRate = this.logs.length > 0 ? ((warnings.length / this.logs.length) * 100).toFixed(2) : '0.00';
+
+                let html = '<div class="report-section">';
+                html += '<div class="report-title">📈 Overview</div>';
+                html += '<div class="report-grid">';
+                html += '<div class="report-card"><div class="report-card-title">Total Logs</div><div class="report-card-value">' + this.logs.length.toLocaleString() + '</div></div>';
+                html += '<div class="report-card"><div class="report-card-title">Error Rate</div><div class="report-card-value">' + errorRate + '%</div></div>';
+                html += '<div class="report-card"><div class="report-card-title">Warning Rate</div><div class="report-card-value">' + warningRate + '%</div></div>';
+                html += '</div>';
+                html += '<div style="margin-top: 15px; padding: 15px; background: rgba(0, 122, 204, 0.1); border-radius: 8px;"><strong>Date Range:</strong> ' + dateRange + '</div>';
+                html += '</div>';
+
+                if (topErrors.length > 0) {
+                    html += '<div class="report-section">';
+                    html += '<div class="report-title">🔴 Top 10 Repeated Errors</div>';
+                    html += '<table class="report-table"><thead><tr><th>Error Message</th><th>Count</th><th>Percentage</th></tr></thead><tbody>';
+                    topErrors.forEach(([msg, count]) => {
+                        const pct = ((count / errors.length) * 100).toFixed(1);
+                        html += '<tr><td>' + this.escape(msg) + '</td><td><strong>' + count + '</strong></td><td>' + pct + '%<div class="report-bar" style="width: ' + Math.min(parseFloat(pct), 100) + '%"></div></td></tr>';
+                    });
+                    html += '</tbody></table></div>';
+                }
+
+                if (topPaths.length > 0) {
+                    html += '<div class="report-section">';
+                    html += '<div class="report-title">🔗 Top 15 API Paths</div>';
+                    html += '<p style="opacity: 0.7; font-size: 12px; margin-bottom: 10px;">Extracted from logs containing "Path: /api/..."</p>';
+                    html += '<table class="report-table"><thead><tr><th>API Path</th><th>Calls</th><th>Percentage</th></tr></thead><tbody>';
+                    const totalPathCalls = Object.values(apiPaths).reduce((a, b) => a + b, 0);
+                    topPaths.forEach(([path, count]) => {
+                        const pct = ((count / totalPathCalls) * 100).toFixed(1);
+                        html += '<tr><td><code>' + this.escape(path) + '</code></td><td><strong>' + count + '</strong></td><td>' + pct + '%<div class="report-bar" style="width: ' + Math.min(parseFloat(pct), 100) + '%"></div></td></tr>';
+                    });
+                    html += '</tbody></table></div>';
+                }
+
+                if (topAPIs.length > 0) {
+                    html += '<div class="report-section">';
+                    html += '<div class="report-title">🌐 Top 15 HTTP Endpoints</div>';
+                    html += '<p style="opacity: 0.7; font-size: 12px; margin-bottom: 10px;">Extracted from logs containing "GET/POST/PUT/DELETE/PATCH /api/..."</p>';
+                    html += '<table class="report-table"><thead><tr><th>HTTP Method + Endpoint</th><th>Calls</th><th>Percentage</th></tr></thead><tbody>';
+                    const totalAPICalls = Object.values(apiCalls).reduce((a, b) => a + b, 0);
+                    topAPIs.forEach(([endpoint, count]) => {
+                        const pct = ((count / totalAPICalls) * 100).toFixed(1);
+                        html += '<tr><td><code style="font-weight: 600;">' + this.escape(endpoint) + '</code></td><td><strong>' + count + '</strong></td><td>' + pct + '%<div class="report-bar" style="width: ' + Math.min(parseFloat(pct), 100) + '%"></div></td></tr>';
+                    });
+                    html += '</tbody></table></div>';
+                }
+
+                if (topRequestResponse.length > 0) {
+                    html += '<div class="report-section">';
+                    html += '<div class="report-title">📨 Top 15 Request/Response Patterns</div>';
+                    html += '<p style="opacity: 0.7; font-size: 12px; margin-bottom: 10px;">Extracted from logs containing "Request: ... Response: ..."</p>';
+                    html += '<table class="report-table"><thead><tr><th>Request → Response</th><th>Count</th></tr></thead><tbody>';
+                    topRequestResponse.forEach(([pattern, count]) => {
+                        html += '<tr><td><code style="font-size: 11px;">' + this.escape(pattern) + '</code></td><td><strong>' + count + '</strong></td></tr>';
+                    });
+                    html += '</tbody></table></div>';
+                }
+
+                if (topHttpErrors.length > 0) {
+                    html += '<div class="report-section">';
+                    html += '<div class="report-title">⚠️ Top 15 HTTP Errors</div>';
+                    html += '<p style="opacity: 0.7; font-size: 12px; margin-bottom: 10px;">Extracted from logs containing "HTTP: ... TYPE: ... REASON: ..."</p>';
+                    html += '<table class="report-table"><thead><tr><th>HTTP Endpoint</th><th>Error Type</th><th>Reason</th><th>Count</th></tr></thead><tbody>';
+                    topHttpErrors.forEach(([key, count]) => {
+                        const [endpoint, errorType, reason] = key.split('|||');
+                        html += '<tr><td><code>' + this.escape(endpoint) + '</code></td><td><strong style="color: #ff6b6b;">' + this.escape(errorType) + '</strong></td><td style="font-size: 12px;">' + this.escape(reason) + '</td><td><strong>' + count + '</strong></td></tr>';
+                    });
+                    html += '</tbody></table></div>';
+                }
+
+                if (topExceptions.length > 0) {
+                    html += '<div class="report-section">';
+                    html += '<div class="report-title">💥 Top 10 Exception Types</div>';
+                    html += '<table class="report-table"><thead><tr><th>Exception Type</th><th>Count</th><th>Percentage</th></tr></thead><tbody>';
+                    const totalExceptions = Object.values(exceptionTypes).reduce((a, b) => a + b, 0);
+                    topExceptions.forEach(([type, count]) => {
+                        const pct = ((count / totalExceptions) * 100).toFixed(1);
+                        html += '<tr><td><code>' + this.escape(type) + '</code></td><td><strong>' + count + '</strong></td><td>' + pct + '%<div class="report-bar" style="width: ' + Math.min(parseFloat(pct), 100) + '%"></div></td></tr>';
+                    });
+                    html += '</tbody></table></div>';
+                }
+
+                if (topExceptionAPIs.length > 0) {
+                    html += '<div class="report-section">';
+                    html += '<div class="report-title">🔗 Exceptions by API Endpoint</div>';
+                    html += '<table class="report-table"><thead><tr><th>Exception</th><th>API Endpoint</th><th>Count</th></tr></thead><tbody>';
+                    topExceptionAPIs.forEach(([key, count]) => {
+                        const [exception, api] = key.split('|||');
+                        html += '<tr><td><code style="font-size: 11px;">' + this.escape(exception) + '</code></td><td><code>' + this.escape(api) + '</code></td><td><strong>' + count + '</strong></td></tr>';
+                    });
+                    html += '</tbody></table></div>';
+                }
+
+                html += '<div class="report-section">';
+                html += '<div class="report-title">🧵 Top 10 Active Threads</div>';
+                html += '<table class="report-table"><thead><tr><th>Thread ID</th><th>Log Count</th><th>Percentage</th></tr></thead><tbody>';
+                topThreads.forEach(([thread, count]) => {
+                    const pct = ((count / this.logs.length) * 100).toFixed(1);
+                    html += '<tr><td><strong>' + thread + '</strong></td><td>' + count + '</td><td>' + pct + '%<div class="report-bar" style="width: ' + Math.min(parseFloat(pct), 100) + '%"></div></td></tr>';
+                });
+                html += '</tbody></table></div>';
+
+                html += '<div class="report-section">';
+                html += '<div class="report-title">⏰ Hourly Activity Distribution</div>';
+                html += '<div class="chart-container">';
+                const maxHourly = Math.max(...Object.values(hourly), 1);
+                for (let h = 0; h < 24; h++) {
+                    const count = hourly[h] || 0;
+                    const pct = (count / maxHourly) * 100;
+                    html += '<div class="timeline-item"><div class="timeline-time">' + String(h).padStart(2, '0') + ':00 - ' + String(h).padStart(2, '0') + ':59</div><div class="timeline-count">' + count + ' logs <span class="report-percentage">(' + ((count / this.logs.length) * 100).toFixed(1) + '%)</span></div><div class="report-bar" style="width: ' + pct + '%"></div></div>';
+                }
+                html += '</div></div>';
+
+                console.log('Report generated, HTML length:', html.length);
+                return html;
+            }
+            exportReport() {
+                this.showLoader('Exporting analytics report...');
+                setTimeout(() => {
+                    const errors = this.logs.filter(l => l.level === 'error');
+                    const warnings = this.logs.filter(l => l.level === 'warning');
+                    let txt = '='.repeat(80) + '\n';
+                    txt += 'SERILOG ANALYTICS REPORT\n';
+                    txt += '='.repeat(80) + '\n\n';
+                    txt += 'Generated: ' + new Date().toLocaleString() + '\n';
+                    txt += 'Total Logs: ' + this.logs.length.toLocaleString() + '\n';
+                    txt += 'Date Range: ' + (this.logs.length > 0 ? this.formatDate(this.logs[0].date) + ' - ' + this.formatDate(this.logs[this.logs.length - 1].date) : 'N/A') + '\n';
+                    txt += 'Error Rate: ' + ((errors.length / this.logs.length) * 100).toFixed(2) + '%\n';
+                    txt += 'Warning Rate: ' + ((warnings.length / this.logs.length) * 100).toFixed(2) + '%\n\n';
+                    txt += '-'.repeat(80) + '\n';
+                    txt += 'LOG LEVEL BREAKDOWN\n';
+                    txt += '-'.repeat(80) + '\n';
+                    const counts = { debug: 0, information: 0, warning: 0, error: 0 };
+                    this.logs.forEach(log => counts[log.level]++);
+                    txt += 'Debug: ' + counts.debug + ' (' + ((counts.debug / this.logs.length) * 100).toFixed(1) + '%)\n';
+                    txt += 'Information: ' + counts.information + ' (' + ((counts.information / this.logs.length) * 100).toFixed(1) + '%)\n';
+                    txt += 'Warning: ' + counts.warning + ' (' + ((counts.warning / this.logs.length) * 100).toFixed(1) + '%)\n';
+                    txt += 'Error: ' + counts.error + ' (' + ((counts.error / this.logs.length) * 100).toFixed(1) + '%)\n\n';
+                    const errorMessages = {};
+                    errors.forEach(log => {
+                        const msg = log.message.substring(0, 100);
+                        errorMessages[msg] = (errorMessages[msg] || 0) + 1;
+                    });
+                    const topErrors = Object.entries(errorMessages).sort((a, b) => b[1] - a[1]).slice(0, 10);
+                    if (topErrors.length > 0) {
+                        txt += '-'.repeat(80) + '\n';
+                        txt += 'TOP 10 REPEATED ERRORS\n';
+                        txt += '-'.repeat(80) + '\n';
+                        topErrors.forEach(([msg, count], i) => {
+                            txt += (i + 1) + '. [' + count + 'x] ' + msg + '\n';
+                        });
+                        txt += '\n';
+                    }
+                    const apiPattern = /(?:GET|POST|PUT|DELETE|PATCH)\s+([^\s]+)/gi;
+                    const apiCalls = {};
+                    this.logs.forEach(log => {
+                        let match;
+                        while ((match = apiPattern.exec(log.message)) !== null) {
+                            apiCalls[match[1]] = (apiCalls[match[1]] || 0) + 1;
+                        }
+                    });
+                    const topAPIs = Object.entries(apiCalls).sort((a, b) => b[1] - a[1]).slice(0, 10);
+                    if (topAPIs.length > 0) {
+                        txt += '-'.repeat(80) + '\n';
+                        txt += 'TOP 10 API ENDPOINTS\n';
+                        txt += '-'.repeat(80) + '\n';
+                        topAPIs.forEach(([endpoint, count], i) => {
+                            txt += (i + 1) + '. [' + count + 'x] ' + endpoint + '\n';
+                        });
+                        txt += '\n';
+                    }
+                    const threadActivity = {};
+                    this.logs.forEach(log => {
+                        threadActivity[log.threadId] = (threadActivity[log.threadId] || 0) + 1;
+                    });
+                    const topThreads = Object.entries(threadActivity).sort((a, b) => b[1] - a[1]).slice(0, 10);
+                    txt += '-'.repeat(80) + '\n';
+                    txt += 'TOP 10 ACTIVE THREADS\n';
+                    txt += '-'.repeat(80) + '\n';
+                    topThreads.forEach(([thread, count], i) => {
+                        txt += (i + 1) + '. Thread ' + thread + ': ' + count + ' logs\n';
+                    });
+                    txt += '\n';
+                    txt += '='.repeat(80) + '\n';
+                    txt += 'END OF REPORT\n';
+                    txt += '='.repeat(80) + '\n';
+                    const blob = new Blob([txt], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'serilog-analytics-report-' + new Date().toISOString().split('T')[0] + '.txt';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    this.hideLoader();
+                    this.showToast('Report exported successfully');
+                }, 500);
+            }
+        }
+        new LogViewer();
     </script>
 </body>
+
 </html>
