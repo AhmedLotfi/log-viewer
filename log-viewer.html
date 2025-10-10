@@ -1307,6 +1307,90 @@
             font-weight: 700;
             color: #007acc;
         }
+        
+        /* Enhanced file list styles */
+        .file-list {
+            margin-top: 8px;
+            padding: 8px;
+            border-radius: 6px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            font-size: 11px;
+            max-height: 120px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+        }
+        
+        body.theme-dark .file-list {
+            background: rgba(0, 0, 0, 0.2);
+        }
+        
+        body.theme-light .file-list {
+            background: #f8f9fa;
+        }
+        
+        body.theme-blue .file-list {
+            background: rgba(0, 0, 0, 0.3);
+        }
+        
+        .file-list::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .file-list::-webkit-scrollbar-thumb {
+            background: rgba(0, 122, 204, 0.3);
+            border-radius: 3px;
+        }
+        
+        .file-list::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        
+        .file-item {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 8px;
+            border-radius: 12px;
+            transition: all 0.3s;
+            background: rgba(0, 122, 204, 0.1);
+            white-space: nowrap;
+            max-width: 200px;
+            overflow: hidden;
+        }
+        
+        .file-item:hover {
+            background: rgba(0, 122, 204, 0.2);
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        .file-icon {
+            margin-right: 6px;
+            font-size: 12px;
+            opacity: 0.7;
+        }
+        
+        .file-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        @media (max-width: 768px) {
+            .file-list {
+                padding: 6px;
+                gap: 4px;
+                max-height: 80px;
+            }
+            .file-item {
+                max-width: 150px;
+                font-size: 10px;
+                padding: 3px 6px;
+            }
+            .file-icon {
+                font-size: 10px;
+            }
+        }
     </style>
 </head>
 
@@ -1914,7 +1998,10 @@
                 const fileList = document.getElementById('fileList');
                 if (fileList) {
                     fileList.innerHTML = this.loadedFileNames.map(name =>
-                        `<div class="file-item"><span class="file-icon">📄</span>${this.escape(name)}</div>`
+                        `<div class="file-item" title="${this.escape(name)}">
+                            <span class="file-icon">📄</span>
+                            <span class="file-name">${this.escape(name)}</span>
+                        </div>`
                     ).join('');
                 }
             }
