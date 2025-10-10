@@ -100,7 +100,7 @@ body.theme-light .pagination button:hover:not(:disabled) { background: #0066cc; 
 .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(100px); background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); color: white; padding: 15px 25px; border-radius: 12px; box-shadow: 0 8px 32px rgba(22, 163, 74, 0.4); font-weight: 600; opacity: 0; transition: all 0.4s; z-index: 1000; }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .loading { text-align: center; padding: 40px; font-size: 18px; color: #007acc; }
-.loader-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); z-index: 9999; display: flex; align-items: center; justify-content: center; flex-direction: column; opacity: 0; pointer-events: none; transition: opacity 0.3s; backdrop-filter: blur(5px); }
+.loader-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); z-index: 9999; display: flex; align-items: center; justify-content: center; flex-direction: column; opacity: 0; pointer-events: none; transition: opacity 0.3s; -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px); }
 body.theme-light .loader-overlay { background: rgba(255, 255, 255, 0.95); }
 .loader-overlay.show { opacity: 1; pointer-events: all; }
 .loader { width: 60px; height: 60px; border: 4px solid rgba(0, 122, 204, 0.2); border-top-color: #007acc; border-radius: 50%; animation: spin 1s linear infinite; }
