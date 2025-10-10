@@ -2014,6 +2014,7 @@
                 this.searchQuery = '';
                 this.dateFrom = this.dateTo = null;
                 this.loadedFiles = 0;
+                this.loadedFileNames = []; // Clear the file names array
                 this.currentPage = 1;
                 this.currentModalLog = null;
                 document.getElementById('searchBox').value = '';
@@ -2022,6 +2023,7 @@
                 document.getElementById('dateTo').value = '';
                 document.getElementById('logContainer').innerHTML = '<div class="empty-state"><div class="empty-state-icon">📋</div><h2>No logs loaded</h2><p>Load log files to get started</p></div>';
                 document.getElementById('pagination').style.display = 'none';
+                document.getElementById('fileList').innerHTML = ''; // Clear the file list display
                 this.updateStats();
                 this.showToast('All logs cleared');
             }
