@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +8,7 @@
     <link rel="stylesheet" href="css/styles.css">
     <link rel="stylesheet" href="css/reports.css">
 </head>
+
 <body class="theme-dark">
     <div class="container">
         <div class="header">
@@ -26,18 +28,24 @@
                     </div>
                     <input type="text" id="searchBox" class="search-box" placeholder="Search...">
                     <div class="filter-group">
-                        <button class="filter-btn filter-debug active" data-level="debug" title="Debug Level">DBG</button>
-                        <button class="filter-btn filter-info active" data-level="information" title="Information Level">INF</button>
-                        <button class="filter-btn filter-warning active" data-level="warning" title="Warning Level">WRN</button>
-                        <button class="filter-btn filter-error active" data-level="error" title="Error Level">ERR</button>
+                        <button class="filter-btn filter-debug active" data-level="debug"
+                            title="Debug Level">DBG</button>
+                        <button class="filter-btn filter-info active" data-level="information"
+                            title="Information Level">INF</button>
+                        <button class="filter-btn filter-warning active" data-level="warning"
+                            title="Warning Level">WRN</button>
+                        <button class="filter-btn filter-error active" data-level="error"
+                            title="Error Level">ERR</button>
                     </div>
                 </div>
                 <div class="controls-row">
                     <div class="date-filter">
                         <label for="dateFrom">From:</label>
-                        <input type="datetime-local" id="dateFrom" class="date-input" title="Filter logs from this date/time">
+                        <input type="datetime-local" id="dateFrom" class="date-input"
+                            title="Filter logs from this date/time">
                         <label for="dateTo">To:</label>
-                        <input type="datetime-local" id="dateTo" class="date-input" title="Filter logs until this date/time">
+                        <input type="datetime-local" id="dateTo" class="date-input"
+                            title="Filter logs until this date/time">
                         <button class="btn btn-secondary" id="clearDateBtn">Clear</button>
                     </div>
                     <select id="pageSize" class="date-input" title="Number of logs per page">
@@ -160,4 +168,5 @@
     </div>
     <script src="js/logViewer.js"></script>
 </body>
+
 </html>

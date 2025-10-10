@@ -337,9 +337,9 @@ class LogViewer {
         const start = (this.currentPage - 1) * this.logsPerPage;
         const end = Math.min(start + this.logsPerPage, this.filteredLogs.length);
         const page = this.filteredLogs.slice(start, end);
-        
+
         container.innerHTML = page.map(log => this.renderLog(log)).join('');
-        
+
         container.querySelectorAll('.log-entry').forEach((el, i) => {
             el.addEventListener('click', () => this.showModal(page[i]));
         });
@@ -355,7 +355,7 @@ class LogViewer {
         } else {
             pagination.classList.add('hidden');
         }
-        
+
         document.getElementById('visibleCount').textContent = this.filteredLogs.length;
     }
 
@@ -366,7 +366,7 @@ class LogViewer {
         document.getElementById('modalThread').textContent = log.correlationId || log.threadId;
         document.getElementById('modalLength').textContent = log.message.length + ' characters';
         document.getElementById('modalMessage').textContent = log.message;
-        
+
         const modalExceptionSection = document.getElementById('modalExceptionSection');
         if (log.exception.trim()) {
             modalExceptionSection.classList.remove('hidden');
@@ -374,7 +374,7 @@ class LogViewer {
         } else {
             modalExceptionSection.classList.add('hidden');
         }
-        
+
         document.getElementById('logModal').classList.add('show');
     }
 
