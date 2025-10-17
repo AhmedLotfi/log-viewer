@@ -149,7 +149,7 @@ class LogViewer {
                         level = logMatch[1];
                         threadId = logMatch[2];
                         message = logMatch[3];
-                        
+
                         // Handle CrlId format in thread ID
                         const crlIdMatch = threadId.match(/^CrlId\]:APIGW:([^:]+):(\d+)$/);
                         if (crlIdMatch) {
@@ -227,7 +227,7 @@ class LogViewer {
                         if (pathMatch) {  // Simplified condition to track all paths
                             const date = dateParts ? new Date(dateParts[1] + 'T' + dateParts[2]) : new Date();
                             const path = pathMatch[1].trim();
-                            
+
                             // Initialize API stats if not exists
                             if (!this.apiCalls.has(path)) {
                                 this.apiCalls.set(path, {
@@ -252,11 +252,11 @@ class LogViewer {
                                 correlationId,
                                 requestId
                             });
-                        } else if ((message.includes('Response') || message.toLowerCase().includes('response')) && 
-                                 currentApiCall &&
-                                 (currentApiCall.correlationId === correlationId ||
-                                  currentApiCall.requestId === requestId ||
-                                  (currentApiCall.correlationId === null && emptyBracketMatch))) {
+                        } else if ((message.includes('Response') || message.toLowerCase().includes('response')) &&
+                            currentApiCall &&
+                            (currentApiCall.correlationId === correlationId ||
+                                currentApiCall.requestId === requestId ||
+                                (currentApiCall.correlationId === null && emptyBracketMatch))) {
                             const date = dateParts ? new Date(dateParts[1] + 'T' + dateParts[2]) : new Date();
                             const duration = date - currentApiCall.startTime;
                             const apiKey = currentApiCall.path;
@@ -285,7 +285,7 @@ class LogViewer {
                             });
                             currentApiCall = null;
                         }
-                        
+
                         // Track inner HTTP calls
                         if (startMatch) {
                             const method = startMatch[1];
@@ -296,17 +296,17 @@ class LogViewer {
                                 threadId,
                                 correlationId
                             };
-                        } else if (endMatch && this.currentInnerCall && 
-                                 (this.currentInnerCall.threadId === threadId || 
-                                  this.currentInnerCall.correlationId === correlationId)) {
+                        } else if (endMatch && this.currentInnerCall &&
+                            (this.currentInnerCall.threadId === threadId ||
+                                this.currentInnerCall.correlationId === correlationId)) {
                             const duration = parseFloat(endMatch[1]);
                             const status = endMatch[2];
                             const innerKey = this.currentInnerCall.path;
-                            
+
                             if (!this.innerApiCalls) {
                                 this.innerApiCalls = new Map();
                             }
-                            
+
                             if (!this.innerApiCalls.has(innerKey)) {
                                 this.innerApiCalls.set(innerKey, {
                                     path: innerKey,
@@ -318,20 +318,20 @@ class LogViewer {
                                     statusCodes: new Map()
                                 });
                             }
-                            
+
                             const stats = this.innerApiCalls.get(innerKey);
                             stats.count++;
                             stats.totalTime += duration;
                             stats.minTime = Math.min(stats.minTime, duration);
                             stats.maxTime = Math.max(stats.maxTime, duration);
-                            
+
                             const statusCount = stats.statusCodes.get(status) || 0;
                             stats.statusCodes.set(status, statusCount + 1);
-                            
+
                             if (!status.startsWith('2')) {
                                 stats.errors++;
                             }
-                            
+
                             this.currentInnerCall = null;
                         }
 
@@ -370,7 +370,7 @@ class LogViewer {
                             // If this is related to an API call, increment error count
                             if ((current.correlationId || current.requestId) && this.apiCalls.size > 0) {
                                 for (const [_, stats] of this.apiCalls) {
-                                    if (stats.correlationId === current.correlationId || 
+                                    if (stats.correlationId === current.correlationId ||
                                         stats.requestId === current.requestId) {
                                         stats.errors++;
                                         break;
