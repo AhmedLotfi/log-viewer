@@ -731,36 +731,6 @@ class LogViewer {
         html += '</div>';
         html += '</div>';
 
-        // Exception Analysis Section
-        if (this.exceptions.size > 0) {
-            html += '<div class="report-section">';
-            html += '<h3 class="report-title">Exception Analysis</h3>';
-            html += '<div class="report-summary">Total Errors: ' + totalErrors + '</div>';
-            html += '<table class="report-table">';
-            html += '<tr><th>Exception Type</th><th>Count</th><th>Most Common Message</th><th>Message Count</th></tr>';
-
-            for (const [type, stats] of this.exceptions) {
-                // Find most common message
-                let topMessage = '';
-                let topCount = 0;
-                for (const [msg, count] of stats.messages) {
-                    if (count > topCount) {
-                        topCount = count;
-                        topMessage = msg;
-                    }
-                }
-
-                html += '<tr>';
-                html += '<td class="report-code">' + this.escape(type) + '</td>';
-                html += '<td>' + stats.count + '</td>';
-                html += '<td>' + this.escape(topMessage) + '</td>';
-                html += '<td>' + topCount + '</td>';
-                html += '</tr>';
-            }
-            html += '</table>';
-            html += '</div>';
-        }
-
         document.getElementById('reportsContent').innerHTML = html;
     }
 
