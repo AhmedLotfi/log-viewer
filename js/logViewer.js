@@ -174,7 +174,7 @@ class LogViewer {
                         const emptyBracketMatch = message.match(/\[""\]/);
                         let correlationId = null;
                         let requestId = null;
-                        
+
                         if (apigwMatch) {
                             correlationId = apigwMatch[1];
                             requestId = apigwMatch[2];
@@ -199,9 +199,9 @@ class LogViewer {
                                 correlationId,
                                 requestId
                             };
-                        } else if (message.includes('Response') && currentApiCall && 
-                                 (currentApiCall.correlationId === correlationId || 
-                                  (currentApiCall.correlationId === null && emptyBracketMatch))) {
+                        } else if (message.includes('Response') && currentApiCall &&
+                            (currentApiCall.correlationId === correlationId ||
+                                (currentApiCall.correlationId === null && emptyBracketMatch))) {
                             const date = dateParts ? new Date(dateParts[1] + 'T' + dateParts[2]) : new Date();
                             const duration = date - currentApiCall.startTime;
                             const apiKey = currentApiCall.path;
@@ -237,7 +237,7 @@ class LogViewer {
                     }
                 } else if (current) {
                     current.exception += line + '\n';
-                    
+
                     // Track exceptions when we see them
                     if (current.level === 'error' && line.includes('Exception:')) {
                         const exceptionMatch = line.match(/([^:.]+Exception):\s*(.+)/);
@@ -251,10 +251,10 @@ class LogViewer {
                             }
                             const exStats = this.exceptions.get(type);
                             exStats.count++;
-                            
+
                             const msgCount = exStats.messages.get(message) || 0;
                             exStats.messages.set(message, msgCount + 1);
-                            
+
                             // If this is related to an API call, increment error count
                             if (current.correlationId && this.apiCalls.size > 0) {
                                 for (const [_, stats] of this.apiCalls) {
@@ -525,6 +525,17 @@ class LogViewer {
         const counts = { debug: 0, information: 0, warning: 0, error: 0 };
         this.logs.forEach(log => counts[log.level]++);
 
+        // Calculate API stats
+        let totalApiCalls = 0;
+        let totalResponseTime = 0;
+        if (this.apiCalls) {
+            for (const [_, stats] of this.apiCalls) {
+                totalApiCalls += stats.count;
+                totalResponseTime += stats.totalTime;
+            }
+        }
+        const avgResponseTime = totalApiCalls > 0 ? (totalResponseTime / totalApiCalls).toFixed(2) : 0;
+
         // Update stats
         document.getElementById('fileCount').textContent = this.loadedFiles;
         document.getElementById('totalCount').textContent = this.logs.length;
@@ -532,6 +543,8 @@ class LogViewer {
         document.getElementById('infoCount').textContent = counts.information;
         document.getElementById('warningCount').textContent = counts.warning;
         document.getElementById('errorCount').textContent = counts.error;
+        document.getElementById('apiCallCount').textContent = totalApiCalls;
+        document.getElementById('avgResponseTime').textContent = avgResponseTime + 'ms';
 
         // Update file names list
         const fileList = document.getElementById('fileList');
@@ -555,6 +568,8 @@ class LogViewer {
         this.loadedFileNames = [];
         this.currentPage = 1;
         this.currentModalLog = null;
+        this.apiCalls = new Map();
+        this.exceptions = new Map();
         document.getElementById('searchBox').value = '';
         document.getElementById('fileInput').value = '';
         document.getElementById('dateFrom').value = '';
@@ -582,7 +597,7 @@ class LogViewer {
         }
 
         const dateRange = this.formatDate(this.logs[0].date) + ' to ' + this.formatDate(this.logs[this.logs.length - 1].date);
-        
+
         // Calculate total errors
         const totalErrors = this.logs.filter(log => log.level === 'error').length;
 
@@ -626,6 +641,60 @@ class LogViewer {
         html += '</table>';
         html += '</div>';
 
+        // API Performance Section
+        if (this.apiCalls.size > 0) {
+            html += '<div class="report-section">';
+            html += '<h3 class="report-title">🚀 API Performance</h3>';
+            html += '<table class="report-table">';
+            html += '<tr><th>API Path</th><th>Calls</th><th>Avg Time</th><th>Min Time</th><th>Max Time</th><th>Error Rate</th></tr>';
+            
+            for (const [path, stats] of this.apiCalls) {
+                const avgTime = (stats.totalTime / stats.count).toFixed(2);
+                const errorRate = ((stats.errors / stats.count) * 100).toFixed(1);
+                
+                html += '<tr>';
+                html += '<td class="report-code">' + this.escape(path) + '</td>';
+                html += '<td>' + stats.count + '</td>';
+                html += '<td>' + avgTime + 'ms</td>';
+                html += '<td>' + stats.minTime + 'ms</td>';
+                html += '<td>' + stats.maxTime + 'ms</td>';
+                html += '<td>' + errorRate + '%</td>';
+                html += '</tr>';
+            }
+            html += '</table>';
+            html += '</div>';
+        }
+
+        // Exception Analysis Section
+        if (this.exceptions.size > 0) {
+            html += '<div class="report-section">';
+            html += '<h3 class="report-title">⚠️ Exception Analysis</h3>';
+            html += '<div class="report-summary">Total Errors: ' + totalErrors + '</div>';
+            html += '<table class="report-table">';
+            html += '<tr><th>Exception Type</th><th>Count</th><th>Most Common Message</th><th>Message Count</th></tr>';
+            
+            for (const [type, stats] of this.exceptions) {
+                // Find most common message
+                let topMessage = '';
+                let topCount = 0;
+                for (const [msg, count] of stats.messages) {
+                    if (count > topCount) {
+                        topCount = count;
+                        topMessage = msg;
+                    }
+                }
+                
+                html += '<tr>';
+                html += '<td class="report-code">' + this.escape(type) + '</td>';
+                html += '<td>' + stats.count + '</td>';
+                html += '<td>' + this.escape(topMessage) + '</td>';
+                html += '<td>' + topCount + '</td>';
+                html += '</tr>';
+            }
+            html += '</table>';
+            html += '</div>';
+        }
+
         // Thread distribution
         html += '<div class="report-section">';
         html += '<h3 class="report-title">Thread Distribution</h3>';
@@ -668,11 +737,11 @@ class LogViewer {
             html += '<h3 class="report-title">API Performance</h3>';
             html += '<table class="report-table">';
             html += '<tr><th>API Path</th><th>Calls</th><th>Avg Time</th><th>Min Time</th><th>Max Time</th><th>Error Rate</th></tr>';
-            
+
             for (const [path, stats] of this.apiCalls) {
                 const avgTime = (stats.totalTime / stats.count).toFixed(2);
                 const errorRate = ((stats.errors / stats.count) * 100).toFixed(1);
-                
+
                 html += '<tr>';
                 html += '<td class="report-code">' + this.escape(path) + '</td>';
                 html += '<td>' + stats.count + '</td>';
@@ -693,7 +762,7 @@ class LogViewer {
             html += '<div class="report-summary">Total Errors: ' + totalErrors + '</div>';
             html += '<table class="report-table">';
             html += '<tr><th>Exception Type</th><th>Count</th><th>Most Common Message</th><th>Message Count</th></tr>';
-            
+
             for (const [type, stats] of this.exceptions) {
                 // Find most common message
                 let topMessage = '';
@@ -704,7 +773,7 @@ class LogViewer {
                         topMessage = msg;
                     }
                 }
-                
+
                 html += '<tr>';
                 html += '<td class="report-code">' + this.escape(type) + '</td>';
                 html += '<td>' + stats.count + '</td>';
