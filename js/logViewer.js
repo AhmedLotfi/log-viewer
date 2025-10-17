@@ -647,11 +647,11 @@ class LogViewer {
             html += '<h3 class="report-title">🚀 API Performance</h3>';
             html += '<table class="report-table">';
             html += '<tr><th>API Path</th><th>Calls</th><th>Avg Time</th><th>Min Time</th><th>Max Time</th><th>Error Rate</th></tr>';
-            
+
             for (const [path, stats] of this.apiCalls) {
                 const avgTime = (stats.totalTime / stats.count).toFixed(2);
                 const errorRate = ((stats.errors / stats.count) * 100).toFixed(1);
-                
+
                 html += '<tr>';
                 html += '<td class="report-code">' + this.escape(path) + '</td>';
                 html += '<td>' + stats.count + '</td>';
@@ -672,7 +672,7 @@ class LogViewer {
             html += '<div class="report-summary">Total Errors: ' + totalErrors + '</div>';
             html += '<table class="report-table">';
             html += '<tr><th>Exception Type</th><th>Count</th><th>Most Common Message</th><th>Message Count</th></tr>';
-            
+
             for (const [type, stats] of this.exceptions) {
                 // Find most common message
                 let topMessage = '';
@@ -683,7 +683,7 @@ class LogViewer {
                         topMessage = msg;
                     }
                 }
-                
+
                 html += '<tr>';
                 html += '<td class="report-code">' + this.escape(type) + '</td>';
                 html += '<td>' + stats.count + '</td>';
@@ -730,30 +730,6 @@ class LogViewer {
         }
         html += '</div>';
         html += '</div>';
-
-        // API Performance Section
-        if (this.apiCalls.size > 0) {
-            html += '<div class="report-section">';
-            html += '<h3 class="report-title">API Performance</h3>';
-            html += '<table class="report-table">';
-            html += '<tr><th>API Path</th><th>Calls</th><th>Avg Time</th><th>Min Time</th><th>Max Time</th><th>Error Rate</th></tr>';
-
-            for (const [path, stats] of this.apiCalls) {
-                const avgTime = (stats.totalTime / stats.count).toFixed(2);
-                const errorRate = ((stats.errors / stats.count) * 100).toFixed(1);
-
-                html += '<tr>';
-                html += '<td class="report-code">' + this.escape(path) + '</td>';
-                html += '<td>' + stats.count + '</td>';
-                html += '<td>' + avgTime + 'ms</td>';
-                html += '<td>' + stats.minTime + 'ms</td>';
-                html += '<td>' + stats.maxTime + 'ms</td>';
-                html += '<td>' + errorRate + '%</td>';
-                html += '</tr>';
-            }
-            html += '</table>';
-            html += '</div>';
-        }
 
         // Exception Analysis Section
         if (this.exceptions.size > 0) {

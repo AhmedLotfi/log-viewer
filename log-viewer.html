@@ -168,33 +168,10 @@
                 <button class="modal-close" id="reportsClose">&times;</button>
             </div>
             <div id="reportsContent">
-                <div class="api-performance-section">
-                    <div class="report-section">
-                        <h3 class="report-title">🚀 API Performance Overview</h3>
-                        <div class="api-stats">
-                            <div class="api-stat-card">
-                                <div class="api-stat-value" id="totalApiCalls">0</div>
-                                <div class="api-stat-label">Total API Calls</div>
-                            </div>
-                            <div class="api-stat-card">
-                                <div class="api-stat-value" id="avgResponseTime">0ms</div>
-                                <div class="api-stat-label">Average Response Time</div>
-                            </div>
-                            <div class="api-stat-card">
-                                <div class="api-stat-value" id="successRate">0%</div>
-                                <div class="api-stat-label">Success Rate</div>
-                            </div>
-                        </div>
-                    </div>
+                <div class="empty-state">
+                    <div class="empty-state-icon">📊</div>
+                    <h2>Loading Reports...</h2>
                 </div>
-                <div class="exceptions-section">
-                    <div class="report-section">
-                        <h3 class="report-title">⚠️ Exception Analysis</h3>
-                        <div id="exceptionSummary"></div>
-                        <div id="exceptionDetails"></div>
-                    </div>
-                </div>
-                <div id="additionalReports"></div>
             </div>
             <div class="modal-actions">
                 <button class="btn btn-success" id="exportReportBtn">💾 Export Report</button>
