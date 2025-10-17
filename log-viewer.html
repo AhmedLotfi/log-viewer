@@ -88,6 +88,14 @@
                     <div class="stat-label">Errors</div>
                     <div class="stat-value" id="errorCount">0</div>
                 </div>
+                <div class="stats-card">
+                    <div class="stat-label">API Calls</div>
+                    <div class="stat-value" id="apiCallCount">0</div>
+                </div>
+                <div class="stats-card">
+                    <div class="stat-label">Avg Response</div>
+                    <div class="stat-value" id="avgResponseTime">0ms</div>
+                </div>
             </div>
             <div id="fileList" class="file-list"></div>
         </div>
@@ -159,7 +167,35 @@
                 <h2 class="modal-title">📊 Analytics & Reports</h2>
                 <button class="modal-close" id="reportsClose">&times;</button>
             </div>
-            <div id="reportsContent"></div>
+            <div id="reportsContent">
+                <div class="api-performance-section">
+                    <div class="report-section">
+                        <h3 class="report-title">🚀 API Performance Overview</h3>
+                        <div class="api-stats">
+                            <div class="api-stat-card">
+                                <div class="api-stat-value" id="totalApiCalls">0</div>
+                                <div class="api-stat-label">Total API Calls</div>
+                            </div>
+                            <div class="api-stat-card">
+                                <div class="api-stat-value" id="avgResponseTime">0ms</div>
+                                <div class="api-stat-label">Average Response Time</div>
+                            </div>
+                            <div class="api-stat-card">
+                                <div class="api-stat-value" id="successRate">0%</div>
+                                <div class="api-stat-label">Success Rate</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="exceptions-section">
+                    <div class="report-section">
+                        <h3 class="report-title">⚠️ Exception Analysis</h3>
+                        <div id="exceptionSummary"></div>
+                        <div id="exceptionDetails"></div>
+                    </div>
+                </div>
+                <div id="additionalReports"></div>
+            </div>
             <div class="modal-actions">
                 <button class="btn btn-success" id="exportReportBtn">💾 Export Report</button>
                 <button class="btn btn-secondary" id="reportsCloseBtn">Close</button>

@@ -46,3 +46,106 @@
     margin-bottom: 10px;
     background: rgba(0, 122, 204, 0.1);
 }
+
+.report-section {
+    margin: 25px 0;
+    padding: 20px;
+    border-radius: 12px;
+    background: rgba(0, 122, 204, 0.05);
+}
+
+.report-title {
+    font-size: 16px;
+    margin-bottom: 15px;
+    color: #007acc;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.report-summary {
+    padding: 10px 15px;
+    background: rgba(220, 53, 69, 0.1);
+    border-left: 4px solid #dc3545;
+    border-radius: 6px;
+    margin-bottom: 15px;
+    font-weight: 600;
+    color: #dc3545;
+}
+
+.report-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0;
+    font-size: 13px;
+}
+
+.report-table th {
+    text-align: left;
+    padding: 12px;
+    background: rgba(0, 122, 204, 0.1);
+    font-weight: 600;
+}
+
+.report-table td {
+    padding: 12px;
+    border-bottom: 1px solid rgba(128, 128, 128, 0.1);
+}
+
+.api-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin: 15px 0;
+}
+
+.api-stat-card {
+    padding: 15px;
+    border-radius: 8px;
+    background: rgba(0, 122, 204, 0.1);
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.api-stat-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: #007acc;
+}
+
+.api-stat-label {
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+.error-type {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    background: rgba(220, 53, 69, 0.1);
+    color: #dc3545;
+    margin-right: 5px;
+}
+
+.performance-indicator {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 5px;
+}
+
+.performance-good {
+    background: #198754;
+}
+
+.performance-warning {
+    background: #ffc107;
+}
+
+.performance-critical {
+    background: #dc3545;
+}

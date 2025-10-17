@@ -113,7 +113,10 @@ class LogViewer {
         try {
             const lines = content.split('\n');
             this.logs = [];
+            this.apiCalls = new Map(); // Track API calls
+            this.exceptions = new Map(); // Track exceptions
             let current = null;
+            let currentApiCall = null;
 
             console.log('Starting to parse', lines.length, 'lines...');
 
@@ -166,11 +169,58 @@ class LogViewer {
                         const levelKey = level.toUpperCase();
                         const dateParts = ts.match(/(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2}\.\d{3})/);
 
-                        const correlationMatch = message.match(/^([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\s+-\s+(.*)$/i);
+                        // Handle APIGW correlation IDs and empty brackets
+                        const apigwMatch = message.match(/\["APIGW:([^:]+):([^\]]+)"\]/);
+                        const emptyBracketMatch = message.match(/\[""\]/);
                         let correlationId = null;
-                        if (correlationMatch) {
-                            correlationId = correlationMatch[1];
-                            message = correlationMatch[2];
+                        let requestId = null;
+                        
+                        if (apigwMatch) {
+                            correlationId = apigwMatch[1];
+                            requestId = apigwMatch[2];
+                            message = message.replace(/\["APIGW:[^"]+"\],\s*/, '');
+                        } else if (emptyBracketMatch) {
+                            message = message.replace(/\[""\],\s*/, '');
+                        } else {
+                            const correlationMatch = message.match(/^([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\s+-\s+(.*)$/i);
+                            if (correlationMatch) {
+                                correlationId = correlationMatch[1];
+                                message = correlationMatch[2];
+                            }
+                        }
+
+                        // Handle API paths and tracking
+                        const pathMatch = message.match(/Path:\s+"([^"]+)"/);
+                        if (pathMatch && (requestId || emptyBracketMatch)) {
+                            const date = dateParts ? new Date(dateParts[1] + 'T' + dateParts[2]) : new Date();
+                            currentApiCall = {
+                                path: pathMatch[1],
+                                startTime: date,
+                                correlationId,
+                                requestId
+                            };
+                        } else if (message.includes('Response') && currentApiCall && 
+                                 (currentApiCall.correlationId === correlationId || 
+                                  (currentApiCall.correlationId === null && emptyBracketMatch))) {
+                            const date = dateParts ? new Date(dateParts[1] + 'T' + dateParts[2]) : new Date();
+                            const duration = date - currentApiCall.startTime;
+                            const apiKey = currentApiCall.path;
+                            if (!this.apiCalls.has(apiKey)) {
+                                this.apiCalls.set(apiKey, {
+                                    path: apiKey,
+                                    count: 0,
+                                    totalTime: 0,
+                                    minTime: Infinity,
+                                    maxTime: 0,
+                                    errors: 0
+                                });
+                            }
+                            const stats = this.apiCalls.get(apiKey);
+                            stats.count++;
+                            stats.totalTime += duration;
+                            stats.minTime = Math.min(stats.minTime, duration);
+                            stats.maxTime = Math.max(stats.maxTime, duration);
+                            currentApiCall = null;
                         }
 
                         current = {
@@ -181,11 +231,41 @@ class LogViewer {
                             message: message,
                             exception: '',
                             format: format,
-                            correlationId: correlationId
+                            correlationId: correlationId,
+                            requestId: requestId
                         };
                     }
                 } else if (current) {
                     current.exception += line + '\n';
+                    
+                    // Track exceptions when we see them
+                    if (current.level === 'error' && line.includes('Exception:')) {
+                        const exceptionMatch = line.match(/([^:.]+Exception):\s*(.+)/);
+                        if (exceptionMatch) {
+                            const [_, type, message] = exceptionMatch;
+                            if (!this.exceptions.has(type)) {
+                                this.exceptions.set(type, {
+                                    count: 0,
+                                    messages: new Map()
+                                });
+                            }
+                            const exStats = this.exceptions.get(type);
+                            exStats.count++;
+                            
+                            const msgCount = exStats.messages.get(message) || 0;
+                            exStats.messages.set(message, msgCount + 1);
+                            
+                            // If this is related to an API call, increment error count
+                            if (current.correlationId && this.apiCalls.size > 0) {
+                                for (const [_, stats] of this.apiCalls) {
+                                    if (stats.correlationId === current.correlationId) {
+                                        stats.errors++;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -502,6 +582,9 @@ class LogViewer {
         }
 
         const dateRange = this.formatDate(this.logs[0].date) + ' to ' + this.formatDate(this.logs[this.logs.length - 1].date);
+        
+        // Calculate total errors
+        const totalErrors = this.logs.filter(log => log.level === 'error').length;
 
         // Count logs by level
         const levelCounts = {};
@@ -578,6 +661,60 @@ class LogViewer {
         }
         html += '</div>';
         html += '</div>';
+
+        // API Performance Section
+        if (this.apiCalls.size > 0) {
+            html += '<div class="report-section">';
+            html += '<h3 class="report-title">API Performance</h3>';
+            html += '<table class="report-table">';
+            html += '<tr><th>API Path</th><th>Calls</th><th>Avg Time</th><th>Min Time</th><th>Max Time</th><th>Error Rate</th></tr>';
+            
+            for (const [path, stats] of this.apiCalls) {
+                const avgTime = (stats.totalTime / stats.count).toFixed(2);
+                const errorRate = ((stats.errors / stats.count) * 100).toFixed(1);
+                
+                html += '<tr>';
+                html += '<td class="report-code">' + this.escape(path) + '</td>';
+                html += '<td>' + stats.count + '</td>';
+                html += '<td>' + avgTime + 'ms</td>';
+                html += '<td>' + stats.minTime + 'ms</td>';
+                html += '<td>' + stats.maxTime + 'ms</td>';
+                html += '<td>' + errorRate + '%</td>';
+                html += '</tr>';
+            }
+            html += '</table>';
+            html += '</div>';
+        }
+
+        // Exception Analysis Section
+        if (this.exceptions.size > 0) {
+            html += '<div class="report-section">';
+            html += '<h3 class="report-title">Exception Analysis</h3>';
+            html += '<div class="report-summary">Total Errors: ' + totalErrors + '</div>';
+            html += '<table class="report-table">';
+            html += '<tr><th>Exception Type</th><th>Count</th><th>Most Common Message</th><th>Message Count</th></tr>';
+            
+            for (const [type, stats] of this.exceptions) {
+                // Find most common message
+                let topMessage = '';
+                let topCount = 0;
+                for (const [msg, count] of stats.messages) {
+                    if (count > topCount) {
+                        topCount = count;
+                        topMessage = msg;
+                    }
+                }
+                
+                html += '<tr>';
+                html += '<td class="report-code">' + this.escape(type) + '</td>';
+                html += '<td>' + stats.count + '</td>';
+                html += '<td>' + this.escape(topMessage) + '</td>';
+                html += '<td>' + topCount + '</td>';
+                html += '</tr>';
+            }
+            html += '</table>';
+            html += '</div>';
+        }
 
         document.getElementById('reportsContent').innerHTML = html;
     }
