@@ -135,13 +135,28 @@ class LogViewer {
                     let threadId = null;
                     let message = null;
                     let level = null;
+                    let correlationId = null;
+                    let requestId = null;
+                    let emptyBracketMatch = null;
 
+                    // Check for empty brackets first as it's used in multiple places
+                    emptyBracketMatch = after.match(/\[""\]/);
+
+                    // Check for both formats
                     logMatch = after.match(/^\[([A-Z]{3})\]\s+\[([^\]]+)\]\s+(.*)$/);
                     if (logMatch) {
                         format = 'format1';
                         level = logMatch[1];
                         threadId = logMatch[2];
                         message = logMatch[3];
+                        
+                        // Handle CrlId format in thread ID
+                        const crlIdMatch = threadId.match(/^CrlId\]:APIGW:([^:]+):(\d+)$/);
+                        if (crlIdMatch) {
+                            correlationId = crlIdMatch[1];
+                            requestId = crlIdMatch[2];
+                            message = message.replace(/^APIGW:[^:]+:\d+,\s*/, ''); // Remove any duplicate APIGW prefix in message
+                        }
                     } else {
                         logMatch = after.match(/^\[([A-Z]{3})\]\s+(.*)$/);
                         if (logMatch) {
@@ -169,42 +184,83 @@ class LogViewer {
                         const levelKey = level.toUpperCase();
                         const dateParts = ts.match(/(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2}\.\d{3})/);
 
-                        // Handle APIGW correlation IDs and empty brackets
-                        const apigwMatch = message.match(/\["APIGW:([^:]+):([^\]]+)"\]/);
-                        const emptyBracketMatch = message.match(/\[""\]/);
-                        let correlationId = null;
-                        let requestId = null;
-
-                        if (apigwMatch) {
-                            correlationId = apigwMatch[1];
-                            requestId = apigwMatch[2];
-                            message = message.replace(/\["APIGW:[^"]+"\],\s*/, '');
-                        } else if (emptyBracketMatch) {
-                            message = message.replace(/\[""\],\s*/, '');
+                        // First check for CrlId format in threadId
+                        const crlIdMatch = threadId ? threadId.match(/^CrlId\]:APIGW:([^:]+):(\d+)$/) : null;
+                        if (crlIdMatch) {
+                            correlationId = crlIdMatch[1];
+                            requestId = crlIdMatch[2];
+                            message = message.replace(/^APIGW:[^:]+:\d+,\s*/, '');
                         } else {
-                            const correlationMatch = message.match(/^([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\s+-\s+(.*)$/i);
-                            if (correlationMatch) {
-                                correlationId = correlationMatch[1];
-                                message = correlationMatch[2];
+                            // If not CrlId format, check for APIGW in message
+                            const apigwMatch = message.match(/\["APIGW:([^:]+):([^\]]+)"\]/);
+                            if (apigwMatch) {
+                                correlationId = apigwMatch[1];
+                                requestId = apigwMatch[2];
+                                message = message.replace(/\["APIGW:[^"]+"\],\s*/, '');
+                                console.log('Found APIGW match:', { correlationId, requestId, message });
+                            } else if (emptyBracketMatch) {
+                                message = message.replace(/\[""\],\s*/, '');
+                            } else {
+                                const correlationMatch = message.match(/^([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\s+-\s+(.*)$/i);
+                                if (correlationMatch) {
+                                    correlationId = correlationMatch[1];
+                                    message = correlationMatch[2];
+                                }
                             }
                         }
 
                         // Handle API paths and tracking
-                        const pathMatch = message.match(/Path:\s+"([^"]+)"/);
-                        if (pathMatch && (requestId || emptyBracketMatch)) {
-                            const date = dateParts ? new Date(dateParts[1] + 'T' + dateParts[2]) : new Date();
-                            currentApiCall = {
+                        const pathMatch = message.match(/Path:\s*"?([^"]+)"?/); // Made more flexible for quotes
+                        if (pathMatch) {
+                            console.log('Found Path match:', {
                                 path: pathMatch[1],
+                                message,
+                                correlationId,
+                                requestId,
+                                threadId
+                            });
+                        }
+                        const startMatch = message.match(/Start processing HTTP request "([^"]+)" "([^"]+)"/);
+                        const endMatch = message.match(/End processing HTTP request after ([\d.]+)ms - (\d+)/);
+
+                        // Track original API calls
+                        if (pathMatch) {  // Simplified condition to track all paths
+                            const date = dateParts ? new Date(dateParts[1] + 'T' + dateParts[2]) : new Date();
+                            const path = pathMatch[1].trim();
+                            
+                            // Initialize API stats if not exists
+                            if (!this.apiCalls.has(path)) {
+                                this.apiCalls.set(path, {
+                                    path: path,
+                                    count: 0,
+                                    totalTime: 0,
+                                    minTime: Infinity,
+                                    maxTime: 0,
+                                    errors: 0
+                                });
+                                console.log('Created new API stats for:', path);
+                            }
+
+                            currentApiCall = {
+                                path: path,
                                 startTime: date,
                                 correlationId,
                                 requestId
                             };
-                        } else if (message.includes('Response') && currentApiCall &&
-                            (currentApiCall.correlationId === correlationId ||
-                                (currentApiCall.correlationId === null && emptyBracketMatch))) {
+                            console.log('Found API call start:', {
+                                path: path,
+                                correlationId,
+                                requestId
+                            });
+                        } else if ((message.includes('Response') || message.toLowerCase().includes('response')) && 
+                                 currentApiCall &&
+                                 (currentApiCall.correlationId === correlationId ||
+                                  currentApiCall.requestId === requestId ||
+                                  (currentApiCall.correlationId === null && emptyBracketMatch))) {
                             const date = dateParts ? new Date(dateParts[1] + 'T' + dateParts[2]) : new Date();
                             const duration = date - currentApiCall.startTime;
                             const apiKey = currentApiCall.path;
+
                             if (!this.apiCalls.has(apiKey)) {
                                 this.apiCalls.set(apiKey, {
                                     path: apiKey,
@@ -220,7 +276,63 @@ class LogViewer {
                             stats.totalTime += duration;
                             stats.minTime = Math.min(stats.minTime, duration);
                             stats.maxTime = Math.max(stats.maxTime, duration);
+                            console.log('Found API call end:', {
+                                path: apiKey,
+                                duration,
+                                totalCalls: stats.count,
+                                correlationId: currentApiCall.correlationId,
+                                requestId: currentApiCall.requestId
+                            });
                             currentApiCall = null;
+                        }
+                        
+                        // Track inner HTTP calls
+                        if (startMatch) {
+                            const method = startMatch[1];
+                            const url = startMatch[2];
+                            const urlPath = new URL(url).pathname;
+                            this.currentInnerCall = {
+                                path: `${method} ${urlPath}`,
+                                threadId,
+                                correlationId
+                            };
+                        } else if (endMatch && this.currentInnerCall && 
+                                 (this.currentInnerCall.threadId === threadId || 
+                                  this.currentInnerCall.correlationId === correlationId)) {
+                            const duration = parseFloat(endMatch[1]);
+                            const status = endMatch[2];
+                            const innerKey = this.currentInnerCall.path;
+                            
+                            if (!this.innerApiCalls) {
+                                this.innerApiCalls = new Map();
+                            }
+                            
+                            if (!this.innerApiCalls.has(innerKey)) {
+                                this.innerApiCalls.set(innerKey, {
+                                    path: innerKey,
+                                    count: 0,
+                                    totalTime: 0,
+                                    minTime: Infinity,
+                                    maxTime: 0,
+                                    errors: 0,
+                                    statusCodes: new Map()
+                                });
+                            }
+                            
+                            const stats = this.innerApiCalls.get(innerKey);
+                            stats.count++;
+                            stats.totalTime += duration;
+                            stats.minTime = Math.min(stats.minTime, duration);
+                            stats.maxTime = Math.max(stats.maxTime, duration);
+                            
+                            const statusCount = stats.statusCodes.get(status) || 0;
+                            stats.statusCodes.set(status, statusCount + 1);
+                            
+                            if (!status.startsWith('2')) {
+                                stats.errors++;
+                            }
+                            
+                            this.currentInnerCall = null;
                         }
 
                         current = {
@@ -256,9 +368,10 @@ class LogViewer {
                             exStats.messages.set(message, msgCount + 1);
 
                             // If this is related to an API call, increment error count
-                            if (current.correlationId && this.apiCalls.size > 0) {
+                            if ((current.correlationId || current.requestId) && this.apiCalls.size > 0) {
                                 for (const [_, stats] of this.apiCalls) {
-                                    if (stats.correlationId === current.correlationId) {
+                                    if (stats.correlationId === current.correlationId || 
+                                        stats.requestId === current.requestId) {
                                         stats.errors++;
                                         break;
                                     }
@@ -622,6 +735,12 @@ class LogViewer {
         });
 
         // Generate HTML report
+        console.log('Generating reports with:', {
+            apiCallsSize: this.apiCalls.size,
+            innerApiCallsSize: this.innerApiCalls?.size,
+            exceptionsSize: this.exceptions.size
+        });
+
         let html = '<div class="report-info"><strong>Date Range:</strong> ' + dateRange + '</div>';
 
         // Level distribution
@@ -642,24 +761,34 @@ class LogViewer {
         html += '</div>';
 
         // API Performance Section
-        if (this.apiCalls.size > 0) {
+        console.log('API Calls Map:', Array.from(this.apiCalls.entries()));
+
+        if (this.apiCalls && this.apiCalls.size > 0) {
+            console.log('Generating API Performance section with', this.apiCalls.size, 'entries');
             html += '<div class="report-section">';
             html += '<h3 class="report-title">🚀 API Performance</h3>';
+            html += '<div class="report-description">Total API Endpoints: ' + this.apiCalls.size + '</div>';
             html += '<table class="report-table">';
             html += '<tr><th>API Path</th><th>Calls</th><th>Avg Time</th><th>Min Time</th><th>Max Time</th><th>Error Rate</th></tr>';
 
-            for (const [path, stats] of this.apiCalls) {
-                const avgTime = (stats.totalTime / stats.count).toFixed(2);
-                const errorRate = ((stats.errors / stats.count) * 100).toFixed(1);
+            try {
+                for (const [path, stats] of this.apiCalls) {
+                    const avgTime = (stats.totalTime / stats.count).toFixed(2);
+                    const errorRate = ((stats.errors / stats.count) * 100).toFixed(1);
+                    const minTime = stats.minTime === Infinity ? 0 : stats.minTime;
 
-                html += '<tr>';
-                html += '<td class="report-code">' + this.escape(path) + '</td>';
-                html += '<td>' + stats.count + '</td>';
-                html += '<td>' + avgTime + 'ms</td>';
-                html += '<td>' + stats.minTime + 'ms</td>';
-                html += '<td>' + stats.maxTime + 'ms</td>';
-                html += '<td>' + errorRate + '%</td>';
-                html += '</tr>';
+                    html += '<tr>';
+                    html += '<td class="report-code">' + this.escape(path) + '</td>';
+                    html += '<td>' + stats.count + '</td>';
+                    html += '<td>' + avgTime + 'ms</td>';
+                    html += '<td>' + minTime + 'ms</td>';
+                    html += '<td>' + stats.maxTime + 'ms</td>';
+                    html += '<td>' + errorRate + '%</td>';
+                    html += '</tr>';
+                }
+            } catch (error) {
+                console.error('Error generating API Performance table:', error);
+                html += '<tr><td colspan="6">Error generating API statistics</td></tr>';
             }
             html += '</table>';
             html += '</div>';
@@ -689,6 +818,37 @@ class LogViewer {
                 html += '<td>' + stats.count + '</td>';
                 html += '<td>' + this.escape(topMessage) + '</td>';
                 html += '<td>' + topCount + '</td>';
+                html += '</tr>';
+            }
+            html += '</table>';
+            html += '</div>';
+        }
+
+        // Inner HTTP Calls Section
+        if (this.innerApiCalls && this.innerApiCalls.size > 0) {
+            html += '<div class="report-section">';
+            html += '<h3 class="report-title">🔄 Internal HTTP Calls</h3>';
+            html += '<div class="report-description">HTTP requests made within API calls</div>';
+            html += '<table class="report-table">';
+            html += '<tr><th>Method & Path</th><th>Calls</th><th>Avg Time</th><th>Min Time</th><th>Max Time</th><th>Error Rate</th><th>Status Codes</th></tr>';
+
+            for (const [path, stats] of this.innerApiCalls) {
+                const avgTime = (stats.totalTime / stats.count).toFixed(2);
+                const errorRate = ((stats.errors / stats.count) * 100).toFixed(1);
+                const statusDist = stats.statusCodes && stats.statusCodes.size > 0
+                    ? Array.from(stats.statusCodes.entries())
+                        .map(([code, count]) => `${code}: ${count}`)
+                        .join(', ')
+                    : 'N/A';
+
+                html += '<tr>';
+                html += '<td class="report-code">' + this.escape(path) + '</td>';
+                html += '<td>' + stats.count + '</td>';
+                html += '<td>' + avgTime + 'ms</td>';
+                html += '<td>' + stats.minTime + 'ms</td>';
+                html += '<td>' + stats.maxTime + 'ms</td>';
+                html += '<td>' + errorRate + '%</td>';
+                html += '<td>' + statusDist + '</td>';
                 html += '</tr>';
             }
             html += '</table>';
