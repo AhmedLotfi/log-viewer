@@ -173,6 +173,17 @@
                     <h2>Loading Reports...</h2>
                 </div>
             </div>
+            <div id="exceptionResponseSection" class="hidden exception-response-section">
+                <div class="report-section">
+                    <h3 class="report-title">🔍 Exception Response Analysis</h3>
+                    <div class="exception-tabs">
+                        <button class="exception-tab-btn active" data-tab="by-type">Grouped by TYPE</button>
+                        <button class="exception-tab-btn" data-tab="by-reason">Grouped by REASON</button>
+                    </div>
+                    <div id="exceptionByType" class="exception-tab-content active"></div>
+                    <div id="exceptionByReason" class="exception-tab-content hidden"></div>
+                </div>
+            </div>
             <div class="modal-actions">
                 <button class="btn btn-success" id="exportReportBtn">💾 Export Report</button>
                 <button class="btn btn-secondary" id="reportsCloseBtn">Close</button>

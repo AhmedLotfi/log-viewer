@@ -46,6 +46,10 @@ class LogViewer {
         document.querySelectorAll('.theme-btn').forEach(btn => {
             btn.addEventListener('click', () => this.setTheme(btn.dataset.theme));
         });
+        // Exception tab handlers
+        document.querySelectorAll('.exception-tab-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => this.switchExceptionTab(e.target.dataset.tab));
+        });
     }
 
     setTheme(theme) {
@@ -734,11 +738,15 @@ class LogViewer {
             hourCounts[hour] = (hourCounts[hour] || 0) + 1;
         });
 
+        // Parse exceptions by TYPE and REASON
+        this.parseExceptionResponses();
+
         // Generate HTML report
         console.log('Generating reports with:', {
             apiCallsSize: this.apiCalls.size,
             innerApiCallsSize: this.innerApiCalls?.size,
-            exceptionsSize: this.exceptions.size
+            exceptionsSize: this.exceptions.size,
+            exceptionResponsesSize: this.exceptionResponses?.size
         });
 
         let html = '<div class="report-info"><strong>Date Range:</strong> ' + dateRange + '</div>';
@@ -892,6 +900,138 @@ class LogViewer {
         html += '</div>';
 
         document.getElementById('reportsContent').innerHTML = html;
+
+        // Show exception response section if we have data
+        if (this.exceptionResponses && (this.exceptionResponses.byType.size > 0 || this.exceptionResponses.byReason.size > 0)) {
+            this.renderExceptionResponseSection();
+        }
+    }
+
+    parseExceptionResponses() {
+        this.exceptionResponses = {
+            byType: new Map(),
+            byReason: new Map()
+        };
+
+        this.logs.forEach(log => {
+            if (log.level === 'error' && log.exception) {
+                // Look for TYPE: and REASON: patterns in the exception
+                const typeMatch = log.exception.match(/TYPE:\s*(\w+)/i);
+                const reasonMatch = log.exception.match(/REASON:\s*([^\n]+)/i);
+
+                if (typeMatch || reasonMatch) {
+                    const type = typeMatch ? typeMatch[1] : 'Unknown';
+                    const reason = reasonMatch ? reasonMatch[1].trim() : 'Unknown';
+
+                    // Group by TYPE
+                    if (!this.exceptionResponses.byType.has(type)) {
+                        this.exceptionResponses.byType.set(type, {
+                            count: 0,
+                            reasons: new Map()
+                        });
+                    }
+                    const typeStats = this.exceptionResponses.byType.get(type);
+                    typeStats.count++;
+
+                    if (reason !== 'Unknown') {
+                        const reasonCount = typeStats.reasons.get(reason) || 0;
+                        typeStats.reasons.set(reason, reasonCount + 1);
+                    }
+
+                    // Group by REASON
+                    if (!this.exceptionResponses.byReason.has(reason)) {
+                        this.exceptionResponses.byReason.set(reason, {
+                            count: 0,
+                            types: new Map()
+                        });
+                    }
+                    const reasonStats = this.exceptionResponses.byReason.get(reason);
+                    reasonStats.count++;
+
+                    if (type !== 'Unknown') {
+                        const typeCount = reasonStats.types.get(type) || 0;
+                        reasonStats.types.set(type, typeCount + 1);
+                    }
+                }
+            }
+        });
+
+        console.log('Parsed exception responses:', {
+            byType: Array.from(this.exceptionResponses.byType.entries()),
+            byReason: Array.from(this.exceptionResponses.byReason.entries())
+        });
+    }
+
+    renderExceptionResponseSection() {
+        const section = document.getElementById('exceptionResponseSection');
+        section.classList.remove('hidden');
+
+        // Render by TYPE tab
+        let typeHtml = '<table class="report-table">';
+        typeHtml += '<tr><th>Exception Type</th><th>Count</th><th>Most Common Reason</th></tr>';
+
+        for (const [type, stats] of this.exceptionResponses.byType) {
+            let topReason = 'N/A';
+            let topReasonCount = 0;
+
+            for (const [reason, count] of stats.reasons) {
+                if (count > topReasonCount) {
+                    topReasonCount = count;
+                    topReason = reason;
+                }
+            }
+
+            typeHtml += '<tr>';
+            typeHtml += '<td class="report-code">' + this.escape(type) + '</td>';
+            typeHtml += '<td>' + stats.count + '</td>';
+            typeHtml += '<td>' + this.escape(topReason) + '</td>';
+            typeHtml += '</tr>';
+        }
+        typeHtml += '</table>';
+        document.getElementById('exceptionByType').innerHTML = typeHtml;
+
+        // Render by REASON tab
+        let reasonHtml = '<table class="report-table">';
+        reasonHtml += '<tr><th>Reason</th><th>Count</th><th>Most Common Type</th></tr>';
+
+        for (const [reason, stats] of this.exceptionResponses.byReason) {
+            let topType = 'N/A';
+            let topTypeCount = 0;
+
+            for (const [type, count] of stats.types) {
+                if (count > topTypeCount) {
+                    topTypeCount = count;
+                    topType = type;
+                }
+            }
+
+            reasonHtml += '<tr>';
+            reasonHtml += '<td class="report-code">' + this.escape(reason) + '</td>';
+            reasonHtml += '<td>' + stats.count + '</td>';
+            reasonHtml += '<td>' + this.escape(topType) + '</td>';
+            reasonHtml += '</tr>';
+        }
+        reasonHtml += '</table>';
+        document.getElementById('exceptionByReason').innerHTML = reasonHtml;
+    }
+
+    switchExceptionTab(tab) {
+        // Update button states
+        document.querySelectorAll('.exception-tab-btn').forEach(btn => {
+            btn.classList.remove('active');
+            if (btn.dataset.tab === tab) {
+                btn.classList.add('active');
+            }
+        });
+
+        // Update content visibility
+        if (tab === 'by-type') {
+            document.getElementById('exceptionByType').classList.remove('hidden');
+            document.getElementById('exceptionByReason').classList.add('hidden');
+        } else if (tab === 'by-reason') {
+            document.getElementById('exceptionByType').classList.add('hidden');
+            document.getElementById('exceptionByReason').classList.remove('hidden');
+        }
     }
 
     exportReport() {
