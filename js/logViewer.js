@@ -802,6 +802,66 @@ class LogViewer {
             html += '</div>';
         }
 
+        // Exception Response Analysis Section
+        if (this.exceptionResponses && (this.exceptionResponses.byType.size > 0 || this.exceptionResponses.byReason.size > 0)) {
+            html += '<div class="report-section">';
+            html += '<h3 class="report-title">🔍 Exception Response Analysis</h3>';
+            html += '<div class="exception-tabs">';
+            html += '<button class="exception-tab-btn active" data-tab="by-type">Grouped by TYPE</button>';
+            html += '<button class="exception-tab-btn" data-tab="by-reason">Grouped by REASON</button>';
+            html += '</div>';
+
+            // Exception by TYPE
+            let typeHtml = '<table class="report-table">';
+            typeHtml += '<tr><th>Exception Type</th><th>Count</th><th>Most Common Reason</th></tr>';
+
+            for (const [type, stats] of this.exceptionResponses.byType) {
+                let topReason = 'N/A';
+                let topReasonCount = 0;
+
+                for (const [reason, count] of stats.reasons) {
+                    if (count > topReasonCount) {
+                        topReasonCount = count;
+                        topReason = reason;
+                    }
+                }
+
+                typeHtml += '<tr>';
+                typeHtml += '<td class="report-code">' + this.escape(type) + '</td>';
+                typeHtml += '<td>' + stats.count + '</td>';
+                typeHtml += '<td>' + this.escape(topReason) + '</td>';
+                typeHtml += '</tr>';
+            }
+            typeHtml += '</table>';
+
+            // Exception by REASON
+            let reasonHtml = '<table class="report-table">';
+            reasonHtml += '<tr><th>Reason</th><th>Count</th><th>Most Common Type</th></tr>';
+
+            for (const [reason, stats] of this.exceptionResponses.byReason) {
+                let topType = 'N/A';
+                let topTypeCount = 0;
+
+                for (const [type, count] of stats.types) {
+                    if (count > topTypeCount) {
+                        topTypeCount = count;
+                        topType = type;
+                    }
+                }
+
+                reasonHtml += '<tr>';
+                reasonHtml += '<td class="report-code">' + this.escape(reason) + '</td>';
+                reasonHtml += '<td>' + stats.count + '</td>';
+                reasonHtml += '<td>' + this.escape(topType) + '</td>';
+                reasonHtml += '</tr>';
+            }
+            reasonHtml += '</table>';
+
+            html += '<div id="exceptionByType" class="exception-tab-content active">' + typeHtml + '</div>';
+            html += '<div id="exceptionByReason" class="exception-tab-content hidden">' + reasonHtml + '</div>';
+            html += '</div>';
+        }
+
         // Exception Analysis Section
         if (this.exceptions.size > 0) {
             html += '<div class="report-section">';
@@ -901,10 +961,10 @@ class LogViewer {
 
         document.getElementById('reportsContent').innerHTML = html;
 
-        // Show exception response section if we have data
-        if (this.exceptionResponses && (this.exceptionResponses.byType.size > 0 || this.exceptionResponses.byReason.size > 0)) {
-            this.renderExceptionResponseSection();
-        }
+        // Re-attach tab event listeners for exception tabs
+        document.querySelectorAll('.exception-tab-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => this.switchExceptionTab(e.target.dataset.tab));
+        });
     }
 
     parseExceptionResponses() {
@@ -960,59 +1020,6 @@ class LogViewer {
             byType: Array.from(this.exceptionResponses.byType.entries()),
             byReason: Array.from(this.exceptionResponses.byReason.entries())
         });
-    }
-
-    renderExceptionResponseSection() {
-        const section = document.getElementById('exceptionResponseSection');
-        section.classList.remove('hidden');
-
-        // Render by TYPE tab
-        let typeHtml = '<table class="report-table">';
-        typeHtml += '<tr><th>Exception Type</th><th>Count</th><th>Most Common Reason</th></tr>';
-
-        for (const [type, stats] of this.exceptionResponses.byType) {
-            let topReason = 'N/A';
-            let topReasonCount = 0;
-
-            for (const [reason, count] of stats.reasons) {
-                if (count > topReasonCount) {
-                    topReasonCount = count;
-                    topReason = reason;
-                }
-            }
-
-            typeHtml += '<tr>';
-            typeHtml += '<td class="report-code">' + this.escape(type) + '</td>';
-            typeHtml += '<td>' + stats.count + '</td>';
-            typeHtml += '<td>' + this.escape(topReason) + '</td>';
-            typeHtml += '</tr>';
-        }
-        typeHtml += '</table>';
-        document.getElementById('exceptionByType').innerHTML = typeHtml;
-
-        // Render by REASON tab
-        let reasonHtml = '<table class="report-table">';
-        reasonHtml += '<tr><th>Reason</th><th>Count</th><th>Most Common Type</th></tr>';
-
-        for (const [reason, stats] of this.exceptionResponses.byReason) {
-            let topType = 'N/A';
-            let topTypeCount = 0;
-
-            for (const [type, count] of stats.types) {
-                if (count > topTypeCount) {
-                    topTypeCount = count;
-                    topType = type;
-                }
-            }
-
-            reasonHtml += '<tr>';
-            reasonHtml += '<td class="report-code">' + this.escape(reason) + '</td>';
-            reasonHtml += '<td>' + stats.count + '</td>';
-            reasonHtml += '<td>' + this.escape(topType) + '</td>';
-            reasonHtml += '</tr>';
-        }
-        reasonHtml += '</table>';
-        document.getElementById('exceptionByReason').innerHTML = reasonHtml;
     }
 
     switchExceptionTab(tab) {
