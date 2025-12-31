@@ -637,16 +637,13 @@ class LogViewer {
     normalizeExceptionMessage(message) {
         // Replace transaction numbers and reference numbers with {id} placeholder
         // Examples:
-        // "Transaction With EXP Transaction No. 313273 not found" -> "Transaction With EXP Transaction No. {id} not found"
-        // "Transaction With No. 000008690935 not found" -> "Transaction With No. {id} not found"
-        // "Transaction with No. AL6351 is already processed" -> "Transaction with No. {id} is already processed"
-        
+
         // Replace alphanumeric codes after "No." pattern (handles AL6351, EXP123, etc.)
         let normalized = message.replace(/\bNo\.\s+[A-Z0-9]+/gi, 'No. {id}');
-        
+
         // Replace numeric sequences (any continuous digits)
         normalized = normalized.replace(/\b\d+\b/g, '{id}');
-        
+
         return normalized;
     }
 
