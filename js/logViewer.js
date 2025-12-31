@@ -359,7 +359,8 @@ class LogViewer {
                     if (current.level === 'error' && line.includes('Exception:')) {
                         const exceptionMatch = line.match(/([^:.]+Exception):\s*(.+)/);
                         if (exceptionMatch) {
-                            const [_, type, message] = exceptionMatch;
+                            const [_, type, rawMessage] = exceptionMatch;
+                            const message = this.normalizeExceptionMessage(rawMessage);
                             if (!this.exceptions.has(type)) {
                                 this.exceptions.set(type, {
                                     count: 0,
@@ -630,6 +631,22 @@ class LogViewer {
         normalized = normalized.replace(/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\//gi, '/{id}/');
         normalized = normalized.replace(/(\/)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, '$1{id}');
 
+        return normalized;
+    }
+
+    normalizeExceptionMessage(message) {
+        // Replace transaction numbers and reference numbers with {id} placeholder
+        // Examples:
+        // "Transaction With EXP Transaction No. 313273 not found" -> "Transaction With EXP Transaction No. {id} not found"
+        // "Transaction With No. 000008690935 not found" -> "Transaction With No. {id} not found"
+        // "Transaction with No. AL6351 is already processed" -> "Transaction with No. {id} is already processed"
+        
+        // Replace alphanumeric codes after "No." pattern (handles AL6351, EXP123, etc.)
+        let normalized = message.replace(/\bNo\.\s+[A-Z0-9]+/gi, 'No. {id}');
+        
+        // Replace numeric sequences (any continuous digits)
+        normalized = normalized.replace(/\b\d+\b/g, '{id}');
+        
         return normalized;
     }
 
@@ -995,7 +1012,8 @@ class LogViewer {
 
                 if (typeMatch || reasonMatch) {
                     const type = typeMatch ? typeMatch[1] : 'Unknown';
-                    const reason = reasonMatch ? reasonMatch[1].trim() : 'Unknown';
+                    const rawReason = reasonMatch ? reasonMatch[1].trim() : 'Unknown';
+                    const reason = this.normalizeExceptionMessage(rawReason);
 
                     // Group by TYPE
                     if (!this.exceptionResponses.byType.has(type)) {
