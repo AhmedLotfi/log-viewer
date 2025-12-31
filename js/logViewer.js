@@ -11,6 +11,12 @@ class LogViewer {
         this.currentPage = 1;
         this.logsPerPage = 100;
         this.currentModalLog = null;
+        // Sorting state for logs table
+        this.sortColumn = 'timestamp'; // Default sort column
+        this.sortDirection = 'asc'; // 'asc' or 'desc'
+        // Sorting state for API Performance table
+        this.apiTableSortColumn = 'avgTime'; // Default sort column
+        this.apiTableSortDirection = 'desc'; // 'asc' or 'desc'
         this.init();
     }
 
@@ -533,17 +539,29 @@ class LogViewer {
             return;
         }
 
+        // Sort the filtered logs based on current sort settings
+        const logsToRender = this.getSortedLogs(this.filteredLogs);
+
         const start = (this.currentPage - 1) * this.logsPerPage;
-        const end = Math.min(start + this.logsPerPage, this.filteredLogs.length);
-        const page = this.filteredLogs.slice(start, end);
+        const end = Math.min(start + this.logsPerPage, logsToRender.length);
+        const page = logsToRender.slice(start, end);
 
-        container.innerHTML = page.map(log => this.renderLog(log)).join('');
+        // Render as table
+        container.innerHTML = this.renderLogsTable(page);
 
-        container.querySelectorAll('.log-entry').forEach((el, i) => {
+        // Add click handlers for table rows
+        container.querySelectorAll('.log-table tbody tr').forEach((el, i) => {
             el.addEventListener('click', () => this.showModal(page[i]));
+            el.style.cursor = 'pointer';
         });
 
-        const total = Math.ceil(this.filteredLogs.length / this.logsPerPage);
+        // Add header sort handlers
+        container.querySelectorAll('.log-table thead th[data-column]').forEach(th => {
+            th.style.cursor = 'pointer';
+            th.addEventListener('click', () => this.handleColumnSort(th.dataset.column));
+        });
+
+        const total = Math.ceil(logsToRender.length / this.logsPerPage);
         if (total > 1) {
             pagination.classList.remove('hidden');
             document.getElementById('pageInfo').textContent = 'Page ' + this.currentPage + ' of ' + total;
@@ -555,7 +573,7 @@ class LogViewer {
             pagination.classList.add('hidden');
         }
 
-        document.getElementById('visibleCount').textContent = this.filteredLogs.length;
+        document.getElementById('visibleCount').textContent = logsToRender.length;
     }
 
     showModal(log) {
@@ -600,6 +618,113 @@ class LogViewer {
         const seconds = String(date.getSeconds()).padStart(2, '0');
         const ms = String(date.getMilliseconds()).padStart(3, '0');
         return dayName + ', ' + month + ' ' + day + ', ' + year + ' at ' + hours + ':' + minutes + ':' + seconds + '.' + ms;
+    }
+
+    // ⭐ Sorting Performance Optimization
+    handleColumnSort(column) {
+        // Toggle sort direction if clicking the same column, otherwise reset to ascending
+        if (this.sortColumn === column) {
+            this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            this.sortColumn = column;
+            this.sortDirection = 'asc';
+        }
+        this.currentPage = 1; // Reset to first page
+        this.render();
+    }
+
+    getSortedLogs(logs) {
+        // Fast path: If no sort needed or empty logs
+        if (!logs || logs.length === 0) return logs;
+        
+        // Use efficient sorting based on column type
+        const sorted = [...logs]; // Shallow copy to avoid mutation
+        
+        const compareValues = (a, b, column, direction) => {
+            let aVal, bVal;
+            
+            switch(column) {
+                case 'timestamp':
+                    aVal = a.date.getTime();
+                    bVal = b.date.getTime();
+                    break;
+                case 'level':
+                    // Order: error > warning > information > debug
+                    const levelOrder = { error: 0, warning: 1, information: 2, debug: 3 };
+                    aVal = levelOrder[a.level] || 99;
+                    bVal = levelOrder[b.level] || 99;
+                    break;
+                case 'message':
+                    aVal = a.message.toLowerCase();
+                    bVal = b.message.toLowerCase();
+                    break;
+                case 'thread':
+                    aVal = (a.correlationId || a.threadId || '').toLowerCase();
+                    bVal = (b.correlationId || b.threadId || '').toLowerCase();
+                    break;
+                case 'length':
+                    aVal = a.message.length;
+                    bVal = b.message.length;
+                    break;
+                default:
+                    return 0;
+            }
+            
+            // Handle null/undefined
+            if (aVal == null && bVal == null) return 0;
+            if (aVal == null) return 1;
+            if (bVal == null) return -1;
+            
+            // Compare values
+            if (aVal < bVal) return direction === 'asc' ? -1 : 1;
+            if (aVal > bVal) return direction === 'asc' ? 1 : -1;
+            return 0;
+        };
+        
+        sorted.sort((a, b) => compareValues(a, b, this.sortColumn, this.sortDirection));
+        return sorted;
+    }
+
+    renderLogsTable(logs) {
+        const headerCells = [
+            { label: 'Timestamp', column: 'timestamp' },
+            { label: 'Level', column: 'level' },
+            { label: 'Message', column: 'message' },
+            { label: 'Thread/Correlation', column: 'thread' },
+            { label: 'Length', column: 'length' }
+        ];
+
+        const getSortIndicator = (column) => {
+            if (this.sortColumn !== column) return '';
+            return this.sortDirection === 'asc' ? ' ▲' : ' ▼';
+        };
+
+        let html = '<table class="log-table"><thead><tr>';
+        
+        headerCells.forEach(cell => {
+            const indicator = getSortIndicator(cell.column);
+            const isActive = this.sortColumn === cell.column ? ' active' : '';
+            html += `<th data-column="${cell.column}" class="sortable-header${isActive}">${cell.label}${indicator}</th>`;
+        });
+        
+        html += '</tr></thead><tbody>';
+        
+        logs.forEach(log => {
+            const threadDisplay = log.correlationId ? log.correlationId.substring(0, 8) + '...' : log.threadId;
+            const msgPreview = this.escape(log.message).substring(0, 100) + (log.message.length > 100 ? '...' : '');
+            const levelClass = log.level;
+            
+            html += '<tr class="log-row ' + levelClass + '">' +
+                '<td class="col-timestamp">' + this.escape(log.timestamp) + '</td>' +
+                '<td class="col-level"><span class="level-badge ' + levelClass + '">' + log.level.toUpperCase() + '</span></td>' +
+                '<td class="col-message">' + this.highlight(msgPreview) + '</td>' +
+                '<td class="col-thread">' + this.escape(threadDisplay) + '</td>' +
+                '<td class="col-length">' + log.message.length + '</td>' +
+                '</tr>';
+        });
+        
+        html += '</tbody></table>';
+        return html;
     }
 
     renderLog(log) {
@@ -651,6 +776,65 @@ class LogViewer {
         const div = document.createElement('div');
         div.textContent = txt;
         return div.innerHTML;
+    }
+
+    // API Performance Table Sorting
+    handleApiTableSort(column) {
+        // Toggle sort direction if clicking the same column, otherwise reset to descending
+        if (this.apiTableSortColumn === column) {
+            this.apiTableSortDirection = this.apiTableSortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            this.apiTableSortColumn = column;
+            this.apiTableSortDirection = 'desc'; // Default descending for most metrics
+        }
+        // Regenerate reports to reflect new sort
+        this.generateReports();
+    }
+
+    getSortedApiEndpoints(endpoints) {
+        // Fast path: If no endpoints or single endpoint
+        if (!endpoints || endpoints.length <= 1) return endpoints;
+        
+        // Create a copy to avoid mutation
+        const sorted = [...endpoints];
+        
+        const compareValues = (a, b, column, direction) => {
+            let aVal, bVal;
+            
+            switch(column) {
+                case 'avgTime':
+                    aVal = a.avgTime;
+                    bVal = b.avgTime;
+                    break;
+                case 'calls':
+                    aVal = a.stats.count;
+                    bVal = b.stats.count;
+                    break;
+                case 'maxTime':
+                    aVal = a.stats.maxTime;
+                    bVal = b.stats.maxTime;
+                    break;
+                case 'minTime':
+                    aVal = a.stats.minTime === Infinity ? 0 : a.stats.minTime;
+                    bVal = b.stats.minTime === Infinity ? 0 : b.stats.minTime;
+                    break;
+                default:
+                    return 0;
+            }
+            
+            // Handle null/undefined
+            if (aVal == null && bVal == null) return 0;
+            if (aVal == null) return 1;
+            if (bVal == null) return -1;
+            
+            // Compare values
+            if (aVal < bVal) return direction === 'asc' ? -1 : 1;
+            if (aVal > bVal) return direction === 'asc' ? 1 : -1;
+            return 0;
+        };
+        
+        sorted.sort((a, b) => compareValues(a, b, this.apiTableSortColumn, this.apiTableSortDirection));
+        return sorted;
     }
 
     highlight(txt) {
@@ -801,33 +985,129 @@ class LogViewer {
 
         if (this.apiCalls && this.apiCalls.size > 0) {
             console.log('Generating API Performance section with', this.apiCalls.size, 'entries');
-            html += '<div class="report-section">';
-            html += '<h3 class="report-title">🚀 API Performance</h3>';
-            html += '<div class="report-description">Total API Endpoints: ' + this.apiCalls.size + '</div>';
-            html += '<table class="report-table">';
-            html += '<tr><th>API Path</th><th>Calls</th><th>Avg Time</th><th>Min Time</th><th>Max Time</th><th>Error Rate</th></tr>';
+            
+            // Calculate API statistics
+            let totalCalls = 0;
+            let totalTime = 0;
+            let totalErrors = 0;
+            let slowestEndpoint = { path: '', avgTime: 0 };
+            let fastestEndpoint = { path: '', avgTime: Infinity };
+            let highestErrorRate = { path: '', rate: 0 };
+            const endpoints = [];
 
             try {
                 for (const [path, stats] of this.apiCalls) {
-                    const avgTime = stats.count > 0 ? (stats.totalTime / stats.count).toFixed(2) : 0;
-                    const errorRate = stats.count > 0 ? ((stats.errors / stats.count) * 100).toFixed(1) : 0;
-                    const minTime = stats.minTime === Infinity ? 0 : stats.minTime;
-
-                    html += '<tr>';
-                    html += '<td class="report-code">' + this.escape(path) + '</td>';
-                    html += '<td>' + stats.count + '</td>';
-                    html += '<td>' + avgTime + 'ms</td>';
-                    html += '<td>' + minTime + 'ms</td>';
-                    html += '<td>' + stats.maxTime + 'ms</td>';
-                    html += '<td>' + errorRate + '%</td>';
-                    html += '</tr>';
+                    const avgTime = stats.count > 0 ? stats.totalTime / stats.count : 0;
+                    const errorRate = stats.count > 0 ? (stats.errors / stats.count) * 100 : 0;
+                    
+                    totalCalls += stats.count;
+                    totalTime += stats.totalTime;
+                    totalErrors += stats.errors;
+                    
+                    if (avgTime > slowestEndpoint.avgTime) {
+                        slowestEndpoint = { path, avgTime };
+                    }
+                    if (avgTime < fastestEndpoint.avgTime) {
+                        fastestEndpoint = { path, avgTime };
+                    }
+                    if (errorRate > highestErrorRate.rate) {
+                        highestErrorRate = { path, rate: errorRate };
+                    }
+                    
+                    endpoints.push({ path, stats, avgTime, errorRate });
                 }
+                
+                // Sort endpoints using the sorting method
+                const sortedEndpoints = this.getSortedApiEndpoints(endpoints);
+                
+                html += '<div class="report-section">';
+                html += '<h3 class="report-title">🚀 API Performance Overview</h3>';
+                
+                // Summary Cards
+                html += '<div class="api-summary-cards">';
+                html += '<div class="summary-card">';
+                html += '<div class="summary-label">Total API Calls</div>';
+                html += '<div class="summary-value">' + totalCalls + '</div>';
+                html += '</div>';
+                html += '<div class="summary-card">';
+                html += '<div class="summary-label">Total Time Spent</div>';
+                html += '<div class="summary-value">' + totalTime.toFixed(0) + '<span class="summary-unit">ms</span></div>';
+                html += '</div>';
+                html += '<div class="summary-card">';
+                html += '<div class="summary-label">Average Response</div>';
+                html += '<div class="summary-value">' + (totalCalls > 0 ? (totalTime / totalCalls).toFixed(2) : 0) + '<span class="summary-unit">ms</span></div>';
+                html += '</div>';
+                html += '<div class="summary-card">';
+                html += '<div class="summary-label">Error Rate</div>';
+                html += '<div class="summary-value">' + (totalCalls > 0 ? ((totalErrors / totalCalls) * 100).toFixed(1) : 0) + '<span class="summary-unit">%</span></div>';
+                html += '</div>';
+                html += '</div>';
+                
+                // Performance Insights
+                html += '<div class="api-insights">';
+                html += '<div class="insight-item">';
+                html += '<span class="insight-label">⚡ Fastest Endpoint:</span>';
+                html += '<span class="insight-value">' + (fastestEndpoint.avgTime === Infinity ? 'N/A' : this.escape(fastestEndpoint.path) + ' (' + fastestEndpoint.avgTime.toFixed(2) + 'ms)') + '</span>';
+                html += '</div>';
+                html += '<div class="insight-item">';
+                html += '<span class="insight-label">🐢 Slowest Endpoint:</span>';
+                html += '<span class="insight-value">' + this.escape(slowestEndpoint.path) + ' (' + slowestEndpoint.avgTime.toFixed(2) + 'ms)' + '</span>';
+                html += '</div>';
+                html += '<div class="insight-item">';
+                html += '<span class="insight-label">⚠️ Highest Error Rate:</span>';
+                html += '<span class="insight-value">' + this.escape(highestErrorRate.path) + ' (' + highestErrorRate.rate.toFixed(1) + '%)' + '</span>';
+                html += '</div>';
+                html += '</div>';
+                
+                // Detailed table
+                html += '<div class="report-description">Endpoints Performance Breakdown - Click headers to sort</div>';
+                html += '<table class="report-table api-performance-table">';
+                html += '<thead><tr>';
+                html += '<th>API Endpoint</th>';
+                
+                // Sortable headers with indicators
+                const getSortIndicator = (column) => {
+                    if (this.apiTableSortColumn !== column) return '';
+                    return this.apiTableSortDirection === 'asc' ? ' ▲' : ' ▼';
+                };
+                
+                const getHeaderClass = (column) => {
+                    return this.apiTableSortColumn === column ? ' class="numeric sortable-col active"' : ' class="numeric sortable-col"';
+                };
+                
+                html += '<th' + getHeaderClass('calls') + ' data-sort-column="calls">Calls' + getSortIndicator('calls') + '</th>';
+                html += '<th' + getHeaderClass('avgTime') + ' data-sort-column="avgTime">Avg Time' + getSortIndicator('avgTime') + '</th>';
+                html += '<th' + getHeaderClass('minTime') + ' data-sort-column="minTime">Min Time' + getSortIndicator('minTime') + '</th>';
+                html += '<th' + getHeaderClass('maxTime') + ' data-sort-column="maxTime">Max Time' + getSortIndicator('maxTime') + '</th>';
+                html += '<th class="numeric">Total Time</th>';
+                html += '<th class="numeric">Error Rate</th>';
+                html += '<th class="numeric">Status</th>';
+                html += '</tr></thead>';
+                html += '<tbody>';
+
+                sortedEndpoints.forEach(endpoint => {
+                    const { path, stats, avgTime, errorRate } = endpoint;
+                    const minTime = stats.minTime === Infinity ? 0 : stats.minTime;
+                    const status = errorRate > 10 ? '⚠️ Poor' : errorRate > 0 ? '⚡ Fair' : '✅ Good';
+                    
+                    html += '<tr class="api-row api-status-' + (errorRate > 10 ? 'poor' : errorRate > 0 ? 'fair' : 'good') + '">';
+                    html += '<td class="report-code">' + this.escape(path) + '</td>';
+                    html += '<td class="numeric">' + stats.count + '</td>';
+                    html += '<td class="numeric">' + avgTime.toFixed(2) + 'ms</td>';
+                    html += '<td class="numeric">' + minTime.toFixed(0) + 'ms</td>';
+                    html += '<td class="numeric">' + stats.maxTime.toFixed(0) + 'ms</td>';
+                    html += '<td class="numeric">' + stats.totalTime.toFixed(0) + 'ms</td>';
+                    html += '<td class="numeric">' + errorRate.toFixed(1) + '%</td>';
+                    html += '<td class="status-badge">' + status + '</td>';
+                    html += '</tr>';
+                });
+                
+                html += '</tbody></table>';
+                html += '</div>';
             } catch (error) {
-                console.error('Error generating API Performance table:', error);
-                html += '<tr><td colspan="6">Error generating API statistics</td></tr>';
+                console.error('Error generating API Performance section:', error);
+                html += '<div class="report-section"><h3 class="report-title">🚀 API Performance</h3><p>Error generating API statistics</p></div>';
             }
-            html += '</table>';
-            html += '</div>';
         }
 
         // Exception Response Analysis Section
@@ -992,6 +1272,12 @@ class LogViewer {
         // Re-attach tab event listeners for exception tabs
         document.querySelectorAll('.exception-tab-btn').forEach(btn => {
             btn.addEventListener('click', (e) => this.switchExceptionTab(e.target.dataset.tab));
+        });
+        
+        // Attach event listeners for API Performance table headers
+        document.querySelectorAll('.api-performance-table .sortable-col').forEach(th => {
+            th.style.cursor = 'pointer';
+            th.addEventListener('click', () => this.handleApiTableSort(th.dataset.sortColumn));
         });
     }
 
