@@ -1262,7 +1262,7 @@ class LogViewer {
             reasonHtml += '<th class="numeric">Count</th>';
             reasonHtml += '<th class="numeric">Percentage</th>';
             reasonHtml += '<th>Most Common Type</th>';
-            reasonHtml += '<th class="numeric">Type Count</th>';
+            reasonHtml += '<th>Thrown By API</th>';
             reasonHtml += '</tr></thead>';
             reasonHtml += '<tbody>';
 
@@ -1276,6 +1276,16 @@ class LogViewer {
                         topType = type;
                     }
                 }
+
+                // Find the most common API that threw this reason
+                let topApi = 'N/A';
+                let topApiCount = 0;
+                for (const [api, count] of stats.apis) {
+                    if (count > topApiCount) {
+                        topApiCount = count;
+                        topApi = api;
+                    }
+                }
                 
                 const percentage = totalExceptions > 0 ? ((stats.count / totalExceptions) * 100).toFixed(1) : 0;
                 const percentageBar = '<div class="exception-percentage-bar" style="width: ' + percentage + '%"></div>';
@@ -1285,7 +1295,7 @@ class LogViewer {
                 reasonHtml += '<td class="numeric">' + stats.count + '</td>';
                 reasonHtml += '<td class="numeric"><div class="percentage-container">' + percentage + '%' + percentageBar + '</div></td>';
                 reasonHtml += '<td class="exception-type">' + this.escape(topType) + '</td>';
-                reasonHtml += '<td class="numeric">' + topTypeCount + '</td>';
+                reasonHtml += '<td class="report-code exception-api">' + this.escape(topApi) + '</td>';
                 reasonHtml += '</tr>';
             }
             reasonHtml += '</tbody></table>';
@@ -1387,11 +1397,22 @@ class LogViewer {
                 // Look for TYPE: and REASON: patterns in the exception
                 const typeMatch = log.exception.match(/TYPE:\s*(\w+)/i);
                 const reasonMatch = log.exception.match(/REASON:\s*([^\n]+)/i);
+                const httpMatch = log.exception.match(/HTTP:\s*(\w+)\s+([^\s\n]+)/i);
 
                 if (typeMatch || reasonMatch) {
                     const type = typeMatch ? typeMatch[1] : 'Unknown';
                     const rawReason = reasonMatch ? reasonMatch[1].trim() : 'Unknown';
                     const reason = this.normalizeExceptionMessage(rawReason);
+                    
+                    // Extract API path from HTTP: METHOD /path pattern in exception
+                    let apiPath = 'Unknown API';
+                    if (httpMatch) {
+                        const method = httpMatch[1];
+                        const path = httpMatch[2];
+                        apiPath = method + ' ' + path;
+                    } else if (log.apiPath) {
+                        apiPath = log.apiPath;
+                    }
 
                     // Group by TYPE
                     if (!this.exceptionResponses.byType.has(type)) {
@@ -1412,7 +1433,8 @@ class LogViewer {
                     if (!this.exceptionResponses.byReason.has(reason)) {
                         this.exceptionResponses.byReason.set(reason, {
                             count: 0,
-                            types: new Map()
+                            types: new Map(),
+                            apis: new Map()
                         });
                     }
                     const reasonStats = this.exceptionResponses.byReason.get(reason);
@@ -1422,6 +1444,10 @@ class LogViewer {
                         const typeCount = reasonStats.types.get(type) || 0;
                         reasonStats.types.set(type, typeCount + 1);
                     }
+
+                    // Track which API threw this reason
+                    const apiCount = reasonStats.apis.get(apiPath) || 0;
+                    reasonStats.apis.set(apiPath, apiCount + 1);
                 }
             }
         });
