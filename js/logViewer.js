@@ -970,6 +970,13 @@ class LogViewer {
         const total = this.logs.length;
         const sortedLevels = Object.entries(levelCounts).sort((a, b) => b[1] - a[1]);
         
+        // Calculate health score (100 = all debug/info, 0 = all errors)
+        const errorCount = levelCounts.error || 0;
+        const warningCount = levelCounts.warning || 0;
+        const healthScore = Math.max(0, 100 - ((errorCount * 5) + (warningCount * 2)));
+        const healthStatus = healthScore >= 80 ? '✅ Excellent' : healthScore >= 60 ? '⚠️ Good' : healthScore >= 40 ? '⚡ Fair' : '❌ Critical';
+        const healthColor = healthScore >= 80 ? '#22c55e' : healthScore >= 60 ? '#eab308' : healthScore >= 40 ? '#f97316' : '#ef4444';
+        
         // Summary Cards for each level
         html += '<div class="level-distribution-cards">';
         sortedLevels.forEach(([level, count]) => {
@@ -984,21 +991,25 @@ class LogViewer {
         });
         html += '</div>';
         
-        // Detailed Table
-        html += '<table class="report-table level-distribution-table">';
-        html += '<thead><tr><th>Level</th><th class="numeric">Count</th><th class="numeric">Percentage</th><th>Visual</th></tr></thead>';
+        // Statistics Table
+        html += '<div class="level-stats-section">';
+        html += '<h4 class="level-stats-title">📈 Distribution Statistics</h4>';
+        html += '<table class="report-table level-stats-table">';
+        html += '<thead><tr><th>Level</th><th class="numeric">Count</th><th class="numeric">%</th><th class="numeric">Avg/Hour</th></tr></thead>';
         html += '<tbody>';
         sortedLevels.forEach(([level, count]) => {
             const pct = ((count / total) * 100).toFixed(1);
             const levelClass = 'level-' + level.toLowerCase();
+            const avgPerHour = (count / 24).toFixed(1);
             html += '<tr class="level-row ' + levelClass + '">';
             html += '<td class="level-cell"><span class="level-badge ' + level.toLowerCase() + '">' + level.toUpperCase() + '</span></td>';
             html += '<td class="numeric">' + count + '</td>';
-            html += '<td class="numeric"><span class="percentage-text">' + pct + '%</span></td>';
-            html += '<td class="visual-bar"><div class="distribution-bar-full"><div class="distribution-bar-fill" style="width: ' + pct + '%"></div></div></td>';
+            html += '<td class="numeric">' + pct + '%</td>';
+            html += '<td class="numeric">' + avgPerHour + '</td>';
             html += '</tr>';
         });
         html += '</tbody></table>';
+        html += '</div>';
         html += '</div>';
 
         // API Performance Section
@@ -1041,6 +1052,21 @@ class LogViewer {
                 // Sort endpoints using the sorting method
                 const sortedEndpoints = this.getSortedApiEndpoints(endpoints);
                 
+                // Calculate API Health Score
+                const apiHealthScore = totalCalls > 0 ? Math.max(0, 100 - ((totalErrors / totalCalls) * 100 * 2)) : 100;
+                const apiHealthStatus = apiHealthScore >= 90 ? '✅ Excellent' : apiHealthScore >= 75 ? '⚡ Good' : apiHealthScore >= 50 ? '⚠️ Fair' : '❌ Poor';
+                const apiHealthColor = apiHealthScore >= 90 ? '#22c55e' : apiHealthScore >= 75 ? '#3b82f6' : apiHealthScore >= 50 ? '#eab308' : '#ef4444';
+                
+                // Response time distribution buckets
+                const fastCount = endpoints.filter(e => e.avgTime < 100).length;
+                const mediumCount = endpoints.filter(e => e.avgTime >= 100 && e.avgTime < 500).length;
+                const slowCount = endpoints.filter(e => e.avgTime >= 500 && e.avgTime < 2000).length;
+                const verySlowCount = endpoints.filter(e => e.avgTime >= 2000).length;
+                
+                // Throughput calculation (calls per minute)
+                const throughputPerMin = (totalCalls / Math.max(1, 60)).toFixed(0);
+                const successRate = totalCalls > 0 ? (((totalCalls - totalErrors) / totalCalls) * 100).toFixed(1) : 100;
+                
                 html += '<div class="report-section">';
                 html += '<h3 class="report-title">🚀 API Performance Overview</h3>';
                 
@@ -1051,16 +1077,35 @@ class LogViewer {
                 html += '<div class="summary-value">' + totalCalls + '</div>';
                 html += '</div>';
                 html += '<div class="summary-card">';
-                html += '<div class="summary-label">Total Time Spent</div>';
-                html += '<div class="summary-value">' + totalTime.toFixed(0) + '<span class="summary-unit">ms</span></div>';
+                html += '<div class="summary-label">Success Rate</div>';
+                html += '<div class="summary-value">' + successRate + '<span class="summary-unit">%</span></div>';
                 html += '</div>';
                 html += '<div class="summary-card">';
                 html += '<div class="summary-label">Average Response</div>';
                 html += '<div class="summary-value">' + (totalCalls > 0 ? (totalTime / totalCalls).toFixed(2) : 0) + '<span class="summary-unit">ms</span></div>';
                 html += '</div>';
                 html += '<div class="summary-card">';
-                html += '<div class="summary-label">Error Rate</div>';
-                html += '<div class="summary-value">' + (totalCalls > 0 ? ((totalErrors / totalCalls) * 100).toFixed(1) : 0) + '<span class="summary-unit">%</span></div>';
+                html += '<div class="summary-label">Throughput</div>';
+                html += '<div class="summary-value">' + throughputPerMin + '<span class="summary-unit">/min</span></div>';
+                html += '</div>';
+                html += '</div>';
+                
+                // API Health Score Card
+                html += '<div class="api-health-score-card">';
+                html += '<div class="api-health-label">API Health</div>';
+                html += '<div class="api-health-value" style="color: ' + apiHealthColor + '">' + Math.round(apiHealthScore) + '/100</div>';
+                html += '<div class="api-health-status">' + apiHealthStatus + '</div>';
+                html += '<div class="api-health-bar"><div class="api-health-bar-fill" style="width: ' + apiHealthScore + '%; background-color: ' + apiHealthColor + ';"></div></div>';
+                html += '</div>';
+                
+                // Response Time Distribution
+                html += '<div class="response-distribution-section">';
+                html += '<h4 class="distribution-title">⏱️ Response Time Distribution</h4>';
+                html += '<div class="response-distribution-cards">';
+                html += '<div class="response-card fast"><div class="response-label">Fast (&lt;100ms)</div><div class="response-count">' + fastCount + '</div><div class="response-bar"><div class="response-bar-fill" style="width: ' + ((fastCount / endpoints.length) * 100 || 0) + '%"></div></div></div>';
+                html += '<div class="response-card medium"><div class="response-label">Medium (100-500ms)</div><div class="response-count">' + mediumCount + '</div><div class="response-bar"><div class="response-bar-fill" style="width: ' + ((mediumCount / endpoints.length) * 100 || 0) + '%"></div></div></div>';
+                html += '<div class="response-card slow"><div class="response-label">Slow (500-2000ms)</div><div class="response-count">' + slowCount + '</div><div class="response-bar"><div class="response-bar-fill" style="width: ' + ((slowCount / endpoints.length) * 100 || 0) + '%"></div></div></div>';
+                html += '<div class="response-card veryflow"><div class="response-label">Very Slow (&gt;2000ms)</div><div class="response-count">' + verySlowCount + '</div><div class="response-bar"><div class="response-bar-fill" style="width: ' + ((verySlowCount / endpoints.length) * 100 || 0) + '%"></div></div></div>';
                 html += '</div>';
                 html += '</div>';
                 
@@ -1080,7 +1125,7 @@ class LogViewer {
                 html += '</div>';
                 html += '</div>';
                 
-                // Detailed table
+                // Detailed table with performance tags
                 html += '<div class="report-description">Endpoints Performance Breakdown - Click headers to sort</div>';
                 html += '<table class="report-table api-performance-table">';
                 html += '<thead><tr>';
@@ -1100,26 +1145,33 @@ class LogViewer {
                 html += '<th' + getHeaderClass('avgTime') + ' data-sort-column="avgTime">Avg Time' + getSortIndicator('avgTime') + '</th>';
                 html += '<th' + getHeaderClass('minTime') + ' data-sort-column="minTime">Min Time' + getSortIndicator('minTime') + '</th>';
                 html += '<th' + getHeaderClass('maxTime') + ' data-sort-column="maxTime">Max Time' + getSortIndicator('maxTime') + '</th>';
-                html += '<th class="numeric">Total Time</th>';
-                html += '<th class="numeric">Error Rate</th>';
-                html += '<th class="numeric">Status</th>';
+                html += '<th class="numeric">Success Rate</th>';
+                html += '<th class="numeric">Status Codes</th>';
+                html += '<th class="numeric">Performance</th>';
                 html += '</tr></thead>';
                 html += '<tbody>';
 
                 sortedEndpoints.forEach(endpoint => {
                     const { path, stats, avgTime, errorRate } = endpoint;
-                    const minTime = stats.minTime === Infinity ? 0 : stats.minTime;
-                    const status = errorRate > 10 ? '⚠️ Poor' : errorRate > 0 ? '⚡ Fair' : '✅ Good';
+                    const successCallRate = stats.count > 0 ? (((stats.count - stats.errors) / stats.count) * 100).toFixed(1) : 100;
+                    const performanceTag = avgTime < 100 ? '🟢 Optimal' : avgTime < 500 ? '🔵 Good' : avgTime < 2000 ? '🟡 Fair' : '🔴 Critical';
+                    const statusCodeStr = stats.statusCodes && stats.statusCodes.size > 0 
+                        ? Array.from(stats.statusCodes.entries())
+                            .sort((a, b) => b[1] - a[1])
+                            .slice(0, 3)
+                            .map(([code, count]) => code + ':' + count)
+                            .join(' ')
+                        : 'N/A';
                     
                     html += '<tr class="api-row api-status-' + (errorRate > 10 ? 'poor' : errorRate > 0 ? 'fair' : 'good') + '">';
                     html += '<td class="report-code">' + this.escape(path) + '</td>';
                     html += '<td class="numeric">' + stats.count + '</td>';
                     html += '<td class="numeric">' + avgTime.toFixed(2) + 'ms</td>';
-                    html += '<td class="numeric">' + minTime.toFixed(0) + 'ms</td>';
+                    html += '<td class="numeric">' + (stats.minTime === Infinity ? 0 : stats.minTime).toFixed(0) + 'ms</td>';
                     html += '<td class="numeric">' + stats.maxTime.toFixed(0) + 'ms</td>';
-                    html += '<td class="numeric">' + stats.totalTime.toFixed(0) + 'ms</td>';
-                    html += '<td class="numeric">' + errorRate.toFixed(1) + '%</td>';
-                    html += '<td class="status-badge">' + status + '</td>';
+                    html += '<td class="numeric">' + successCallRate + '%</td>';
+                    html += '<td class="numeric status-codes">' + statusCodeStr + '</td>';
+                    html += '<td class="status-badge">' + performanceTag + '</td>';
                     html += '</tr>';
                 });
                 

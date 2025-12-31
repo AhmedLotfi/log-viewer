@@ -571,6 +571,319 @@ body.theme-light .level-distribution-table thead {
     height: 100%;
 }
 
+/* Health Score Card */
+.health-score-card {
+    padding: 20px;
+    border-radius: 8px;
+    border: 2px solid #007acc;
+    margin: 20px 0;
+    background: linear-gradient(135deg, rgba(0, 122, 204, 0.1) 0%, rgba(0, 122, 204, 0.05) 100%);
+}
+
+body.theme-light .health-score-card {
+    border-color: #0066cc;
+    background: linear-gradient(135deg, rgba(0, 102, 204, 0.08) 0%, rgba(0, 102, 204, 0.04) 100%);
+}
+
+.health-score-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    opacity: 0.7;
+    margin-bottom: 8px;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+
+.health-score-value {
+    font-size: 36px;
+    font-weight: 700;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: baseline;
+}
+
+.health-score-status {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    opacity: 0.9;
+}
+
+.health-score-bar {
+    height: 8px;
+    background: rgba(128, 128, 128, 0.1);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 12px;
+}
+
+.health-score-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.health-warning {
+    font-size: 12px;
+    color: #ef4444;
+    font-weight: 600;
+    margin-top: 8px;
+    padding: 8px;
+    background: rgba(239, 68, 68, 0.1);
+    border-radius: 4px;
+}
+
+body.theme-light .health-warning {
+    color: #dc2626;
+    background: rgba(220, 38, 38, 0.08);
+}
+
+/* Timeline Section */
+.level-timeline-section {
+    margin: 20px 0;
+}
+
+.level-timeline-title {
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    opacity: 0.8;
+}
+
+.hourly-timeline {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 3px;
+    height: 120px;
+    padding: 10px;
+    border-radius: 6px;
+    background: rgba(0, 122, 204, 0.05);
+}
+
+body.theme-light .hourly-timeline {
+    background: rgba(0, 102, 204, 0.04);
+}
+
+.timeline-bar-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    min-height: 100%;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.timeline-bar-container:hover {
+    opacity: 0.8;
+}
+
+.timeline-bar {
+    width: 100%;
+    background: linear-gradient(180deg, #007acc 0%, #004a99 100%);
+    border-radius: 2px 2px 0 0;
+    min-height: 4px;
+    transition: all 0.2s ease;
+}
+
+body.theme-light .timeline-bar {
+    background: linear-gradient(180deg, #0066cc 0%, #003d99 100%);
+}
+
+.timeline-label {
+    font-size: 9px;
+    opacity: 0.6;
+    font-weight: 600;
+}
+
+/* Level Stats Section */
+.level-stats-section {
+    margin: 20px 0;
+}
+
+.level-stats-title {
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    opacity: 0.8;
+}
+
+.level-stats-table {
+    width: 100%;
+}
+
+/* API Health Score Card */
+.api-health-score-card {
+    padding: 20px;
+    border-radius: 8px;
+    border: 2px solid #3b82f6;
+    margin: 20px 0;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0.05) 100%);
+}
+
+body.theme-light .api-health-score-card {
+    border-color: #0066cc;
+    background: linear-gradient(135deg, rgba(0, 102, 204, 0.08) 0%, rgba(0, 102, 204, 0.04) 100%);
+}
+
+.api-health-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    opacity: 0.7;
+    margin-bottom: 8px;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+
+.api-health-value {
+    font-size: 36px;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.api-health-status {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    opacity: 0.9;
+}
+
+.api-health-bar {
+    height: 8px;
+    background: rgba(128, 128, 128, 0.1);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.api-health-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+/* Response Time Distribution */
+.response-distribution-section {
+    margin: 20px 0;
+}
+
+.distribution-title {
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    opacity: 0.8;
+}
+
+.response-distribution-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 12px;
+    margin: 15px 0;
+}
+
+.response-card {
+    padding: 15px;
+    border-radius: 8px;
+    text-align: center;
+    border: 2px solid;
+    transition: all 0.3s ease;
+}
+
+.response-card.fast {
+    border-color: #22c55e;
+}
+
+.response-card.fast {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(34, 197, 94, 0.05) 100%);
+}
+
+.response-card.medium {
+    border-color: #3b82f6;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0.05) 100%);
+}
+
+.response-card.slow {
+    border-color: #eab308;
+    background: linear-gradient(135deg, rgba(234, 179, 8, 0.1) 0%, rgba(234, 179, 8, 0.05) 100%);
+}
+
+.response-card.veryflow {
+    border-color: #ef4444;
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(239, 68, 68, 0.05) 100%);
+}
+
+.response-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.response-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    opacity: 0.7;
+    margin-bottom: 8px;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+
+.response-count {
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+
+.response-card.fast .response-count {
+    color: #22c55e;
+}
+
+.response-card.medium .response-count {
+    color: #3b82f6;
+}
+
+.response-card.slow .response-count {
+    color: #eab308;
+}
+
+.response-card.veryflow .response-count {
+    color: #ef4444;
+}
+
+.response-bar {
+    height: 6px;
+    background: rgba(128, 128, 128, 0.1);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.response-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+}
+
+.response-card.fast .response-bar-fill {
+    background: linear-gradient(90deg, #22c55e 0%, #16a34a 100%);
+}
+
+.response-card.medium .response-bar-fill {
+    background: linear-gradient(90deg, #3b82f6 0%, #1d4ed8 100%);
+}
+
+.response-card.slow .response-bar-fill {
+    background: linear-gradient(90deg, #eab308 0%, #ca8a04 100%);
+}
+
+.response-card.veryflow .response-bar-fill {
+    background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%);
+}
+
+/* Status Codes Column */
+.status-codes {
+    font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+    font-size: 11px;
+    opacity: 0.85;
+}
+
 /* 🚀 Table and Column Sorting Styles */
 .log-table {
     width: 100%;
