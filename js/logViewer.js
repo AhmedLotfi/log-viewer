@@ -965,19 +965,40 @@ class LogViewer {
 
         // Level distribution
         html += '<div class="report-section">';
-        html += '<h3 class="report-title">Log Level Distribution</h3>';
-        html += '<table class="report-table">';
-        html += '<tr><th>Level</th><th>Count</th><th>Percentage</th></tr>';
+        html += '<h3 class="report-title">📊 Log Level Distribution</h3>';
+        
         const total = this.logs.length;
-        Object.entries(levelCounts).sort((a, b) => b[1] - a[1]).forEach(([level, count]) => {
+        const sortedLevels = Object.entries(levelCounts).sort((a, b) => b[1] - a[1]);
+        
+        // Summary Cards for each level
+        html += '<div class="level-distribution-cards">';
+        sortedLevels.forEach(([level, count]) => {
             const pct = ((count / total) * 100).toFixed(1);
-            html += '<tr>';
-            html += '<td>' + level.toUpperCase() + '</td>';
-            html += '<td>' + count + '</td>';
-            html += '<td><div class="report-bar-container">' + pct + '%<div class="report-bar" style="width: ' + pct + '%"></div></div></td>';
+            const levelClass = 'level-' + level.toLowerCase();
+            html += '<div class="distribution-card ' + levelClass + '">';
+            html += '<div class="distribution-level-badge">' + level.toUpperCase() + '</div>';
+            html += '<div class="distribution-count">' + count + '</div>';
+            html += '<div class="distribution-percentage">' + pct + '%</div>';
+            html += '<div class="distribution-bar"><div class="distribution-bar-fill" style="width: ' + pct + '%"></div></div>';
+            html += '</div>';
+        });
+        html += '</div>';
+        
+        // Detailed Table
+        html += '<table class="report-table level-distribution-table">';
+        html += '<thead><tr><th>Level</th><th class="numeric">Count</th><th class="numeric">Percentage</th><th>Visual</th></tr></thead>';
+        html += '<tbody>';
+        sortedLevels.forEach(([level, count]) => {
+            const pct = ((count / total) * 100).toFixed(1);
+            const levelClass = 'level-' + level.toLowerCase();
+            html += '<tr class="level-row ' + levelClass + '">';
+            html += '<td class="level-cell"><span class="level-badge ' + level.toLowerCase() + '">' + level.toUpperCase() + '</span></td>';
+            html += '<td class="numeric">' + count + '</td>';
+            html += '<td class="numeric"><span class="percentage-text">' + pct + '%</span></td>';
+            html += '<td class="visual-bar"><div class="distribution-bar-full"><div class="distribution-bar-fill" style="width: ' + pct + '%"></div></div></td>';
             html += '</tr>';
         });
-        html += '</table>';
+        html += '</tbody></table>';
         html += '</div>';
 
         // API Performance Section
