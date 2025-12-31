@@ -884,6 +884,102 @@ body.theme-light .api-health-score-card {
     opacity: 0.85;
 }
 
+/* Internal HTTP Calls Health Score Card */
+.internal-health-score-card {
+    padding: 20px;
+    border-radius: 8px;
+    border: 2px solid #8b5cf6;
+    margin: 20px 0;
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(139, 92, 246, 0.05) 100%);
+}
+
+body.theme-light .internal-health-score-card {
+    border-color: #7c3aed;
+    background: linear-gradient(135deg, rgba(124, 58, 237, 0.08) 0%, rgba(124, 58, 237, 0.04) 100%);
+}
+
+.internal-health-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    opacity: 0.7;
+    margin-bottom: 8px;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+
+.internal-health-value {
+    font-size: 36px;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.internal-health-status {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    opacity: 0.9;
+}
+
+.internal-health-bar {
+    height: 8px;
+    background: rgba(128, 128, 128, 0.1);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.internal-health-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+/* Internal HTTP Response Distribution Section */
+.internal-response-distribution-section {
+    margin: 20px 0;
+}
+
+/* Internal HTTP Table Styles */
+.internal-http-table {
+    margin-top: 20px;
+}
+
+.internal-http-table thead {
+    background: rgba(139, 92, 246, 0.08);
+}
+
+body.theme-light .internal-http-table thead {
+    background: rgba(124, 58, 237, 0.06);
+}
+
+.internal-http-row {
+    border-left: 3px solid #8b5cf6;
+    transition: all 0.2s ease;
+}
+
+body.theme-light .internal-http-row {
+    border-left-color: #7c3aed;
+}
+
+.internal-http-row:hover {
+    background: rgba(139, 92, 246, 0.12) !important;
+}
+
+.internal-http-table td.numeric {
+    font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+    font-size: 12px;
+}
+
+/* Responsive Design for Internal Calls */
+@media (max-width: 768px) {
+    .internal-http-table {
+        font-size: 11px;
+    }
+    
+    .internal-http-table th, .internal-http-table td {
+        padding: 8px;
+    }
+}
+
 /* 🚀 Table and Column Sorting Styles */
 .log-table {
     width: 100%;

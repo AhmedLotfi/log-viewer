@@ -1310,29 +1310,141 @@ class LogViewer {
             html += '<div class="report-section">';
             html += '<h3 class="report-title">🔄 Internal HTTP Calls</h3>';
             html += '<div class="report-description">HTTP requests made within API calls</div>';
-            html += '<table class="report-table">';
-            html += '<tr><th>Method & Path</th><th>Calls</th><th>Avg Time</th><th>Min Time</th><th>Max Time</th><th>Error Rate</th><th>Status Codes</th></tr>';
-
+            
+            // Calculate statistics for internal calls
+            let totalInternalCalls = 0;
+            let totalInternalTime = 0;
+            let totalInternalErrors = 0;
+            let slowestInternalCall = { path: '', avgTime: 0 };
+            let fastestInternalCall = { path: '', avgTime: Infinity };
+            const internalEndpoints = [];
+            
             for (const [path, stats] of this.innerApiCalls) {
-                const avgTime = stats.count > 0 ? (stats.totalTime / stats.count).toFixed(2) : 0;
-                const errorRate = stats.count > 0 ? ((stats.errors / stats.count) * 100).toFixed(1) : 0;
-                const statusDist = stats.statusCodes && stats.statusCodes.size > 0
-                    ? Array.from(stats.statusCodes.entries())
-                        .map(([code, count]) => `${code}: ${count}`)
-                        .join(', ')
-                    : 'N/A';
-
-                html += '<tr>';
-                html += '<td class="report-code">' + this.escape(path) + '</td>';
-                html += '<td>' + stats.count + '</td>';
-                html += '<td>' + avgTime + 'ms</td>';
-                html += '<td>' + stats.minTime + 'ms</td>';
-                html += '<td>' + stats.maxTime + 'ms</td>';
-                html += '<td>' + errorRate + '%</td>';
-                html += '<td>' + statusDist + '</td>';
-                html += '</tr>';
+                const avgTime = stats.count > 0 ? stats.totalTime / stats.count : 0;
+                const errorRate = stats.count > 0 ? (stats.errors / stats.count) * 100 : 0;
+                
+                totalInternalCalls += stats.count;
+                totalInternalTime += stats.totalTime;
+                totalInternalErrors += stats.errors;
+                
+                if (avgTime > slowestInternalCall.avgTime) {
+                    slowestInternalCall = { path, avgTime };
+                }
+                if (avgTime < fastestInternalCall.avgTime) {
+                    fastestInternalCall = { path, avgTime };
+                }
+                
+                internalEndpoints.push({ path, stats, avgTime, errorRate });
             }
-            html += '</table>';
+            
+            // Calculate internal call health
+            const internalHealthScore = totalInternalCalls > 0 ? Math.max(0, 100 - ((totalInternalErrors / totalInternalCalls) * 100 * 2)) : 100;
+            const internalHealthStatus = internalHealthScore >= 90 ? '✅ Excellent' : internalHealthScore >= 75 ? '⚡ Good' : internalHealthScore >= 50 ? '⚠️ Fair' : '❌ Poor';
+            const internalHealthColor = internalHealthScore >= 90 ? '#22c55e' : internalHealthScore >= 75 ? '#3b82f6' : internalHealthScore >= 50 ? '#eab308' : '#ef4444';
+            
+            // Response time distribution for internal calls
+            const internalFastCount = internalEndpoints.filter(e => e.avgTime < 100).length;
+            const internalMediumCount = internalEndpoints.filter(e => e.avgTime >= 100 && e.avgTime < 500).length;
+            const internalSlowCount = internalEndpoints.filter(e => e.avgTime >= 500 && e.avgTime < 2000).length;
+            const internalVerySlowCount = internalEndpoints.filter(e => e.avgTime >= 2000).length;
+            
+            const internalSuccessRate = totalInternalCalls > 0 ? (((totalInternalCalls - totalInternalErrors) / totalInternalCalls) * 100).toFixed(1) : 100;
+            
+            // Summary Cards
+            html += '<div class="api-summary-cards">';
+            html += '<div class="summary-card">';
+            html += '<div class="summary-label">Total Internal Calls</div>';
+            html += '<div class="summary-value">' + totalInternalCalls + '</div>';
+            html += '</div>';
+            html += '<div class="summary-card">';
+            html += '<div class="summary-label">Success Rate</div>';
+            html += '<div class="summary-value">' + internalSuccessRate + '<span class="summary-unit">%</span></div>';
+            html += '</div>';
+            html += '<div class="summary-card">';
+            html += '<div class="summary-label">Average Response</div>';
+            html += '<div class="summary-value">' + (totalInternalCalls > 0 ? (totalInternalTime / totalInternalCalls).toFixed(2) : 0) + '<span class="summary-unit">ms</span></div>';
+            html += '</div>';
+            html += '<div class="summary-card">';
+            html += '<div class="summary-label">Unique Endpoints</div>';
+            html += '<div class="summary-value">' + internalEndpoints.length + '</div>';
+            html += '</div>';
+            html += '</div>';
+            
+            // Internal Call Health Score
+            html += '<div class="internal-health-score-card">';
+            html += '<div class="internal-health-label">Internal Call Health</div>';
+            html += '<div class="internal-health-value" style="color: ' + internalHealthColor + '">' + Math.round(internalHealthScore) + '/100</div>';
+            html += '<div class="internal-health-status">' + internalHealthStatus + '</div>';
+            html += '<div class="internal-health-bar"><div class="internal-health-bar-fill" style="width: ' + internalHealthScore + '%; background-color: ' + internalHealthColor + ';"></div></div>';
+            html += '</div>';
+            
+            // Response Time Distribution for Internal Calls
+            html += '<div class="internal-response-distribution-section">';
+            html += '<h4 class="distribution-title">⏱️ Response Time Distribution</h4>';
+            html += '<div class="response-distribution-cards">';
+            html += '<div class="response-card fast"><div class="response-label">Fast (&lt;100ms)</div><div class="response-count">' + internalFastCount + '</div><div class="response-bar"><div class="response-bar-fill" style="width: ' + ((internalFastCount / internalEndpoints.length) * 100 || 0) + '%"></div></div></div>';
+            html += '<div class="response-card medium"><div class="response-label">Medium (100-500ms)</div><div class="response-count">' + internalMediumCount + '</div><div class="response-bar"><div class="response-bar-fill" style="width: ' + ((internalMediumCount / internalEndpoints.length) * 100 || 0) + '%"></div></div></div>';
+            html += '<div class="response-card slow"><div class="response-label">Slow (500-2000ms)</div><div class="response-count">' + internalSlowCount + '</div><div class="response-bar"><div class="response-bar-fill" style="width: ' + ((internalSlowCount / internalEndpoints.length) * 100 || 0) + '%"></div></div></div>';
+            html += '<div class="response-card veryflow"><div class="response-label">Very Slow (&gt;2000ms)</div><div class="response-count">' + internalVerySlowCount + '</div><div class="response-bar"><div class="response-bar-fill" style="width: ' + ((internalVerySlowCount / internalEndpoints.length) * 100 || 0) + '%"></div></div></div>';
+            html += '</div>';
+            html += '</div>';
+            
+            // Insights
+            html += '<div class="api-insights">';
+            html += '<div class="insight-item">';
+            html += '<span class="insight-label">⚡ Fastest Internal Call:</span>';
+            html += '<span class="insight-value">' + (fastestInternalCall.avgTime === Infinity ? 'N/A' : this.escape(fastestInternalCall.path) + ' (' + fastestInternalCall.avgTime.toFixed(2) + 'ms)') + '</span>';
+            html += '</div>';
+            html += '<div class="insight-item">';
+            html += '<span class="insight-label">🐢 Slowest Internal Call:</span>';
+            html += '<span class="insight-value">' + this.escape(slowestInternalCall.path) + ' (' + slowestInternalCall.avgTime.toFixed(2) + 'ms)' + '</span>';
+            html += '</div>';
+            html += '</div>';
+            
+            // Detailed table
+            html += '<div class="report-description">Internal HTTP Endpoints - Sorted by Response Time</div>';
+            html += '<table class="report-table internal-http-table">';
+            html += '<thead><tr>';
+            html += '<th>Method & Path</th>';
+            html += '<th class="numeric">Calls</th>';
+            html += '<th class="numeric">Avg Time</th>';
+            html += '<th class="numeric">Min Time</th>';
+            html += '<th class="numeric">Max Time</th>';
+            html += '<th class="numeric">Success Rate</th>';
+            html += '<th class="numeric">Top Status Codes</th>';
+            html += '<th class="numeric">Performance</th>';
+            html += '</tr></thead>';
+            html += '<tbody>';
+            
+            // Sort by avg time descending
+            internalEndpoints.sort((a, b) => b.avgTime - a.avgTime);
+            
+            internalEndpoints.forEach(endpoint => {
+                const { path, stats, avgTime, errorRate } = endpoint;
+                const minTime = stats.minTime === Infinity ? 0 : stats.minTime;
+                const successCallRate = stats.count > 0 ? (((stats.count - stats.errors) / stats.count) * 100).toFixed(1) : 100;
+                const performanceTag = avgTime < 100 ? '🟢 Fast' : avgTime < 500 ? '🔵 Medium' : avgTime < 2000 ? '🟡 Slow' : '🔴 Very Slow';
+                const statusCodeStr = stats.statusCodes && stats.statusCodes.size > 0
+                    ? Array.from(stats.statusCodes.entries())
+                        .sort((a, b) => b[1] - a[1])
+                        .slice(0, 2)
+                        .map(([code, count]) => code + ':' + count)
+                        .join(' ')
+                    : 'N/A';
+                
+                html += '<tr class="internal-http-row">';
+                html += '<td class="report-code">' + this.escape(path) + '</td>';
+                html += '<td class="numeric">' + stats.count + '</td>';
+                html += '<td class="numeric">' + avgTime.toFixed(2) + 'ms</td>';
+                html += '<td class="numeric">' + minTime.toFixed(0) + 'ms</td>';
+                html += '<td class="numeric">' + stats.maxTime.toFixed(0) + 'ms</td>';
+                html += '<td class="numeric">' + successCallRate + '%</td>';
+                html += '<td class="numeric status-codes">' + statusCodeStr + '</td>';
+                html += '<td class="status-badge">' + performanceTag + '</td>';
+                html += '</tr>';
+            });
+            
+            html += '</tbody></table>';
             html += '</div>';
         }
 
