@@ -623,17 +623,13 @@ class LogViewer {
     normalizeApiPath(path) {
         // Replace numeric IDs and GUIDs with {id} placeholder to group similar endpoints
         // Examples:
-        // /api/Account/65591/Topup/Detail -> /api/Account/{id}/Topup/Detail
-        // /api/Account/GetAccountsByCustomer/65484 -> /api/Account/GetAccountsByCustomer/{id}
-        // /api/User/GetUserBySSOId/7ea2042b-a31e-4b88-ae2a-a72681ef1293 -> /api/User/GetUserBySSOId/{id}
-        
         // Replace numeric IDs in the middle and at the end
         let normalized = path.replace(/\/(\d+)\//g, '/{id}/').replace(/(\/)\d+$/, '$1{id}');
-        
+
         // Replace GUIDs/UUIDs (format: 8-4-4-4-12 hex digits separated by hyphens)
         normalized = normalized.replace(/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\//gi, '/{id}/');
         normalized = normalized.replace(/(\/)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, '$1{id}');
-        
+
         return normalized;
     }
 
