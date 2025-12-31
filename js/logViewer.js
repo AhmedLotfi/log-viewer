@@ -809,8 +809,8 @@ class LogViewer {
 
             try {
                 for (const [path, stats] of this.apiCalls) {
-                    const avgTime = (stats.totalTime / stats.count).toFixed(2);
-                    const errorRate = ((stats.errors / stats.count) * 100).toFixed(1);
+                    const avgTime = stats.count > 0 ? (stats.totalTime / stats.count).toFixed(2) : 0;
+                    const errorRate = stats.count > 0 ? ((stats.errors / stats.count) * 100).toFixed(1) : 0;
                     const minTime = stats.minTime === Infinity ? 0 : stats.minTime;
 
                     html += '<tr>';
@@ -929,8 +929,8 @@ class LogViewer {
             html += '<tr><th>Method & Path</th><th>Calls</th><th>Avg Time</th><th>Min Time</th><th>Max Time</th><th>Error Rate</th><th>Status Codes</th></tr>';
 
             for (const [path, stats] of this.innerApiCalls) {
-                const avgTime = (stats.totalTime / stats.count).toFixed(2);
-                const errorRate = ((stats.errors / stats.count) * 100).toFixed(1);
+                const avgTime = stats.count > 0 ? (stats.totalTime / stats.count).toFixed(2) : 0;
+                const errorRate = stats.count > 0 ? ((stats.errors / stats.count) * 100).toFixed(1) : 0;
                 const statusDist = stats.statusCodes && stats.statusCodes.size > 0
                     ? Array.from(stats.statusCodes.entries())
                         .map(([code, count]) => `${code}: ${count}`)
