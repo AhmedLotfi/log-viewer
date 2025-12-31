@@ -230,29 +230,30 @@ class LogViewer {
                         // Track original API calls
                         if (pathMatch) {  // Simplified condition to track all paths
                             const date = dateParts ? new Date(dateParts[1] + 'T' + dateParts[2]) : new Date();
-                            const path = pathMatch[1].trim();
+                            const rawPath = pathMatch[1].trim();
+                            const normalizedPath = this.normalizeApiPath(rawPath);
 
                             // Initialize API stats if not exists
-                            if (!this.apiCalls.has(path)) {
-                                this.apiCalls.set(path, {
-                                    path: path,
+                            if (!this.apiCalls.has(normalizedPath)) {
+                                this.apiCalls.set(normalizedPath, {
+                                    path: normalizedPath,
                                     count: 0,
                                     totalTime: 0,
                                     minTime: Infinity,
                                     maxTime: 0,
                                     errors: 0
                                 });
-                                console.log('Created new API stats for:', path);
+                                console.log('Created new API stats for:', normalizedPath);
                             }
 
                             currentApiCall = {
-                                path: path,
+                                path: normalizedPath,
                                 startTime: date,
                                 correlationId,
                                 requestId
                             };
                             console.log('Found API call start:', {
-                                path: path,
+                                path: normalizedPath,
                                 correlationId,
                                 requestId
                             });
@@ -263,7 +264,7 @@ class LogViewer {
                                 (currentApiCall.correlationId === null && emptyBracketMatch))) {
                             const date = dateParts ? new Date(dateParts[1] + 'T' + dateParts[2]) : new Date();
                             const duration = date - currentApiCall.startTime;
-                            const apiKey = currentApiCall.path;
+                            const apiKey = currentApiCall.path; // Already normalized
 
                             if (!this.apiCalls.has(apiKey)) {
                                 this.apiCalls.set(apiKey, {
@@ -617,6 +618,23 @@ class LogViewer {
             '</div>' +
             (log.exception.trim() ? '<div class="log-exception">' + exc + '</div>' : '') +
             '</div>';
+    }
+
+    normalizeApiPath(path) {
+        // Replace numeric IDs and GUIDs with {id} placeholder to group similar endpoints
+        // Examples:
+        // /api/Account/65591/Topup/Detail -> /api/Account/{id}/Topup/Detail
+        // /api/Account/GetAccountsByCustomer/65484 -> /api/Account/GetAccountsByCustomer/{id}
+        // /api/User/GetUserBySSOId/7ea2042b-a31e-4b88-ae2a-a72681ef1293 -> /api/User/GetUserBySSOId/{id}
+        
+        // Replace numeric IDs in the middle and at the end
+        let normalized = path.replace(/\/(\d+)\//g, '/{id}/').replace(/(\/)\d+$/, '$1{id}');
+        
+        // Replace GUIDs/UUIDs (format: 8-4-4-4-12 hex digits separated by hyphens)
+        normalized = normalized.replace(/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\//gi, '/{id}/');
+        normalized = normalized.replace(/(\/)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, '$1{id}');
+        
+        return normalized;
     }
 
     escape(txt) {
