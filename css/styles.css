@@ -624,3 +624,195 @@ body.theme-light .log-table tbody tr:hover {
         display: none;
     }
 }
+
+/* 🔍 Enhanced Exception Response Analysis Styles */
+.exception-summary-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 12px;
+    margin: 15px 0;
+}
+
+.exception-summary-card {
+    padding: 15px;
+    border-radius: 8px;
+    text-align: center;
+    border: 2px solid #ef4444;
+    transition: all 0.3s ease;
+}
+
+body.theme-dark .exception-summary-card {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(239, 68, 68, 0.05) 100%);
+}
+
+body.theme-light .exception-summary-card {
+    background: linear-gradient(135deg, rgba(220, 38, 38, 0.08) 0%, rgba(220, 38, 38, 0.04) 100%);
+    border-color: #dc2626;
+}
+
+body.theme-blue .exception-summary-card {
+    background: linear-gradient(135deg, rgba(248, 81, 73, 0.1) 0%, rgba(248, 81, 73, 0.05) 100%);
+    border-color: #f85149;
+}
+
+.exception-summary-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
+}
+
+.exception-summary-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    opacity: 0.7;
+    margin-bottom: 8px;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+
+.exception-summary-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: #ef4444;
+}
+
+body.theme-light .exception-summary-value {
+    color: #dc2626;
+}
+
+body.theme-blue .exception-summary-value {
+    color: #f85149;
+}
+
+.exception-tabs {
+    display: flex;
+    gap: 8px;
+    margin: 15px 0;
+    border-bottom: 2px solid rgba(239, 68, 68, 0.2);
+}
+
+.exception-tab-btn {
+    padding: 10px 20px;
+    border: none;
+    background: transparent;
+    color: #888;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.3s ease;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+}
+
+.exception-tab-btn:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.05);
+}
+
+.exception-tab-btn.active {
+    color: #ef4444;
+    border-bottom-color: #ef4444;
+}
+
+body.theme-light .exception-tab-btn.active {
+    color: #dc2626;
+    border-bottom-color: #dc2626;
+}
+
+body.theme-blue .exception-tab-btn.active {
+    color: #f85149;
+    border-bottom-color: #f85149;
+}
+
+.exception-tab-content {
+    display: none;
+    animation: fadeIn 0.3s ease;
+}
+
+.exception-tab-content.active {
+    display: block;
+}
+
+.exception-table {
+    margin-top: 15px;
+}
+
+.exception-table thead {
+    background: rgba(239, 68, 68, 0.05);
+}
+
+body.theme-light .exception-table thead {
+    background: rgba(220, 38, 38, 0.05);
+}
+
+.exception-table th {
+    color: #ef4444;
+    font-weight: 700;
+    padding: 12px;
+}
+
+body.theme-light .exception-table th {
+    color: #dc2626;
+}
+
+body.theme-blue .exception-table th {
+    color: #f85149;
+}
+
+.exception-row {
+    border-left: 3px solid #ef4444;
+    transition: all 0.2s ease;
+}
+
+body.theme-light .exception-row {
+    border-left-color: #dc2626;
+}
+
+body.theme-blue .exception-row {
+    border-left-color: #f85149;
+}
+
+.exception-row:hover {
+    background: rgba(239, 68, 68, 0.08) !important;
+}
+
+body.theme-light .exception-row:hover {
+    background: rgba(220, 38, 38, 0.06) !important;
+}
+
+.exception-row td.numeric {
+    font-weight: 500;
+}
+
+.exception-type-name,
+.exception-reason-name {
+    font-weight: 600;
+}
+
+.exception-reason,
+.exception-type {
+    font-size: 12px;
+    opacity: 0.9;
+    word-break: break-word;
+}
+
+.percentage-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 80px;
+}
+
+.exception-percentage-bar {
+    height: 6px;
+    background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%);
+    border-radius: 3px;
+    min-width: 40px;
+}
+
+body.theme-light .exception-percentage-bar {
+    background: linear-gradient(90deg, #dc2626 0%, #991b1b 100%);
+}
+
+body.theme-blue .exception-percentage-bar {
+    background: linear-gradient(90deg, #f85149 0%, #da3633 100%);
+}
