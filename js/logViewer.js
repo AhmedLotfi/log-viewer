@@ -577,7 +577,7 @@ class LogViewer {
                 if (loaded === files.length) {
                     document.getElementById('loaderSubtext').textContent = 'Parsing logs...';
                     setTimeout(() => {
-                        this.parseLogs(contents.join('\n'));
+                        this.parseFiles(files, contents);
                         this.hideLoader();
                         this.showToast('Loaded ' + files.length + ' file(s) successfully');
                     }, 100);
@@ -591,15 +591,63 @@ class LogViewer {
         });
     }
 
+    /** Single-file entry. Source defaults to loadedFileNames[0]. */
     parseLogs(content) {
+        this._resetParseState();
+        this._currentSource = (this.loadedFileNames && this.loadedFileNames[0]) || null;
         try {
-            const lines = content.split('\n');
-            this.logs = [];
-            this.apiCalls = new Map(); // Track API calls
-            this.exceptions = new Map(); // Track exceptions
-            this.apiByCorrelation = new Map(); // correlationId/requestId -> normalized API path
-            let current = null;
-            let currentApiCall = null;
+            this._parseChunk(content);
+        } catch (error) {
+            console.error('Error parsing logs:', error);
+            this.showToast('Error parsing log file: ' + error.message);
+        }
+        this._currentSource = null;
+        this._finalizeParseAndRender();
+    }
+
+    /**
+     * Multi-file entry. Each chunk is parsed independently with its own
+     * source name stamped on every produced log entry. Per-request state
+     * (currentApiCall, currentInnerCall) is reset between chunks so an
+     * unfinished request in one file isn't matched in another.
+     */
+    parseFiles(files, contents) {
+        this._resetParseState();
+        for (let i = 0; i < files.length; i++) {
+            this._currentSource = files[i].name;
+            try {
+                this._parseChunk(contents[i]);
+            } catch (error) {
+                console.error('Error parsing chunk ' + files[i].name + ':', error);
+            }
+        }
+        this._currentSource = null;
+        this._finalizeParseAndRender();
+    }
+
+    _resetParseState() {
+        this.logs = [];
+        this.apiCalls = new Map();
+        this.innerApiCalls = new Map();
+        this.exceptions = new Map();
+        this.apiByCorrelation = new Map();
+        this.currentInnerCall = null;
+        this._sortCache = null;
+        this._sourceColorIndex = null;
+    }
+
+    /**
+     * Parse one chunk of log content into this.logs (append). Caller is
+     * responsible for resetting/finalizing. Assumes this._currentSource is
+     * set so each log entry can be stamped with its file of origin.
+     */
+    _parseChunk(content) {
+        const lines = content.split('\n');
+        // Per-chunk request-tracking state. Resetting between chunks keeps
+        // a request started in file A from matching a response in file B.
+        let current = null;
+        let currentApiCall = null;
+        this.currentInnerCall = null;
 
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
@@ -808,7 +856,8 @@ class LogViewer {
                             exception: '',
                             format: format,
                             correlationId: correlationId,
-                            requestId: requestId
+                            requestId: requestId,
+                            source: this._currentSource || null
                         };
                     }
                 } else if (current) {
@@ -850,34 +899,32 @@ class LogViewer {
             if (current) {
                 this.logs.push(current);
             }
+    }
 
-            if (this.logs.length > 0) {
-                this.logs.sort((a, b) => a.date - b.date);
-                // Preserve the URL-loaded currentPage if still valid; otherwise clamp.
-                const maxPage = Math.max(1, Math.ceil(this.logs.length / this.logsPerPage));
-                this.currentPage = Math.min(Math.max(1, this.currentPage || 1), maxPage);
-                this.applyFilters();
-                this.updateStats();
+    _finalizeParseAndRender() {
+        if (this.logs.length > 0) {
+            this.logs.sort((a, b) => a.date - b.date);
+            // Preserve the URL-loaded currentPage if still valid; otherwise clamp.
+            const maxPage = Math.max(1, Math.ceil(this.logs.length / this.logsPerPage));
+            this.currentPage = Math.min(Math.max(1, this.currentPage || 1), maxPage);
+            this.applyFilters();
+            this.updateStats();
 
-                const formatCounts = {
-                    format1: this.logs.filter(l => l.format === 'format1').length,
-                    format2: this.logs.filter(l => l.format === 'format2').length,
-                    withCorrelation: this.logs.filter(l => l.correlationId).length
-                };
+            const formatCounts = {
+                format1: this.logs.filter(l => l.format === 'format1').length,
+                format2: this.logs.filter(l => l.format === 'format2').length,
+                withCorrelation: this.logs.filter(l => l.correlationId).length
+            };
 
-                let formatMsg = 'Parsed ' + this.logs.length + ' logs';
-                if (formatCounts.format1 > 0) formatMsg += ' (' + formatCounts.format1 + ' with Thread ID';
-                if (formatCounts.format2 > 0) formatMsg += (formatCounts.format1 > 0 ? ', ' : ' (') + formatCounts.format2 + ' without Thread ID';
-                if (formatCounts.withCorrelation > 0) formatMsg += ', ' + formatCounts.withCorrelation + ' with Correlation ID';
-                formatMsg += ')';
+            let formatMsg = 'Parsed ' + this.logs.length + ' logs';
+            if (formatCounts.format1 > 0) formatMsg += ' (' + formatCounts.format1 + ' with Thread ID';
+            if (formatCounts.format2 > 0) formatMsg += (formatCounts.format1 > 0 ? ', ' : ' (') + formatCounts.format2 + ' without Thread ID';
+            if (formatCounts.withCorrelation > 0) formatMsg += ', ' + formatCounts.withCorrelation + ' with Correlation ID';
+            formatMsg += ')';
 
-                this.showToast(formatMsg);
-            } else {
-                document.getElementById('logContainer').innerHTML = '<div class="empty-state"><h2>No logs parsed</h2><p>Expected one of these line formats:<br/><code>[LEVEL] [ThreadID] Message</code><br/><code>[LEVEL] Message</code></p><p class="empty-state-hint">Open the browser console (F12) for parser details.</p></div>';
-            }
-        } catch (error) {
-            console.error('Error parsing logs:', error);
-            this.showToast('Error parsing log file: ' + error.message);
+            this.showToast(formatMsg);
+        } else {
+            document.getElementById('logContainer').innerHTML = '<div class="empty-state"><h2>No logs parsed</h2><p>Expected one of these line formats:<br/><code>[LEVEL] [ThreadID] Message</code><br/><code>[LEVEL] Message</code></p><p class="empty-state-hint">Open the browser console (F12) for parser details.</p></div>';
         }
     }
 
@@ -1268,6 +1315,15 @@ class LogViewer {
             traceBtn.style.pointerEvents = hasTrace ? '' : 'none';
         }
         document.getElementById('modalLength').textContent = log.message.length + ' characters';
+        const sourceItem = document.getElementById('modalSourceItem');
+        if (sourceItem) {
+            if (log.source) {
+                sourceItem.classList.remove('hidden');
+                document.getElementById('modalSource').textContent = log.source;
+            } else {
+                sourceItem.classList.add('hidden');
+            }
+        }
         document.getElementById('modalMessage').textContent = log.message;
 
         const modalExceptionSection = document.getElementById('modalExceptionSection');
@@ -1415,6 +1471,7 @@ class LogViewer {
     }
 
     renderLogsTable(logs) {
+        const showSource = this.loadedFileNames && this.loadedFileNames.length > 1;
         const headerCells = [
             { label: 'Timestamp', column: 'timestamp' },
             { label: 'Level', column: 'level' },
@@ -1436,80 +1493,53 @@ class LogViewer {
             const ariaSort = isActive ? (this.sortDirection === 'asc' ? 'ascending' : 'descending') : 'none';
             html += `<th data-column="${cell.column}" class="sortable-header${isActive ? ' active' : ''}" role="button" tabindex="0" aria-sort="${ariaSort}">${cell.label}${indicator}</th>`;
         });
+        if (showSource) {
+            html += '<th class="col-source-head">Source</th>';
+        }
 
         html += '</tr></thead><tbody>';
-        
+
         logs.forEach(log => {
             const threadDisplay = log.correlationId ? log.correlationId.substring(0, 8) + '...' : log.threadId;
             const msgPreview = this.escape(log.message).substring(0, 100) + (log.message.length > 100 ? '...' : '');
             const levelClass = log.level;
-            
+
             html += '<tr class="log-row ' + levelClass + '">' +
                 '<td class="col-timestamp">' + this.escape(log.timestamp) + '</td>' +
                 '<td class="col-level"><span class="level-badge ' + levelClass + '">' + log.level.toUpperCase() + '</span></td>' +
                 '<td class="col-message">' + this.highlight(msgPreview) + '</td>' +
                 '<td class="col-thread">' + this.escape(threadDisplay) + '</td>' +
                 '<td class="col-length">' + log.message.length + '</td>' +
+                (showSource ? '<td class="col-source">' + this._renderSourceChip(log.source) + '</td>' : '') +
                 '</tr>';
         });
-        
+
         html += '</tbody></table>';
         return html;
     }
 
-    normalizeApiPath(path) {
-        // Replace numeric IDs and GUIDs with {id} placeholder to group similar endpoints
-        // Examples:
-        // Replace numeric IDs in the middle and at the end
-        let normalized = path.replace(/\/(\d+)\//g, '/{id}/').replace(/(\/)\d+$/, '$1{id}');
-
-        // Replace GUIDs/UUIDs (format: 8-4-4-4-12 hex digits separated by hyphens)
-        normalized = normalized.replace(/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\//gi, '/{id}/');
-        normalized = normalized.replace(/(\/)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, '$1{id}');
-
-        return normalized;
+    /**
+     * Render a colored chip identifying the file an entry came from. Color
+     * is assigned in load order (cycling through 5 token colors) so the same
+     * filename always gets the same chip color within a session.
+     */
+    _renderSourceChip(source) {
+        if (!source) return '';
+        if (!this._sourceColorIndex) this._sourceColorIndex = new Map();
+        if (!this._sourceColorIndex.has(source)) {
+            this._sourceColorIndex.set(source, this._sourceColorIndex.size);
+        }
+        const idx = this._sourceColorIndex.get(source) % 5;
+        const safe = this.escape(source);
+        return '<span class="source-chip" data-color-idx="' + idx + '" title="' + safe + '">' + safe + '</span>';
     }
 
-    /**
-     * Collapse identifier-like substrings to placeholders so reasons that
-     * differ only by id/email/timestamp group together. Order matters —
-     * specific patterns first, then generic numeric fallback.
-     */
+    normalizeApiPath(path) {
+        return LogParser.normalizeApiPath(path);
+    }
+
     normalizeExceptionMessage(message) {
-        if (!message) return message;
-        let n = String(message);
-
-        // GUIDs / UUIDs (hex, 8-4-4-4-12).
-        n = n.replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '{id}');
-
-        // ISO 8601 timestamps (with optional fractional seconds and tz).
-        n = n.replace(/\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b/g, '{ts}');
-
-        // Email addresses.
-        n = n.replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, '{email}');
-
-        // Hyphen-separated uppercase codes (ORD-2024-001, INV-12345-A).
-        n = n.replace(/\b[A-Z]{2,}(?:-[A-Z0-9]+)+\b/g, '{id}');
-
-        // Bare alphanumeric IDs — uppercase letters + digits in either order,
-        // 4+ chars (AL6351, EXP123, 1234ABC).
-        n = n.replace(/\b(?:[A-Z]{2,}\d{2,}|\d{2,}[A-Z]{2,})\b/g, '{id}');
-
-        // Quoted values (capped so we don't swallow whole sentences).
-        n = n.replace(/'([^'\n]{1,60})'/g, "'{val}'");
-        n = n.replace(/"([^"\n]{1,60})"/g, '"{val}"');
-
-        // Hex blobs of 6+ chars (e.g. partial hashes, request ids).
-        n = n.replace(/\b[0-9a-f]{6,}\b/gi, '{hex}');
-
-        // Numeric sequences (2+ digits — avoids replacing isolated "1" / "0"
-        // which often have semantic meaning).
-        n = n.replace(/\b\d{2,}\b/g, '{id}');
-
-        // Tidy whitespace and trim trailing punctuation.
-        n = n.replace(/\s{2,}/g, ' ').trim().replace(/[.,;:\s]+$/, '');
-
-        return n;
+        return LogParser.normalizeExceptionMessage(message);
     }
 
     escape(txt) {
@@ -1894,46 +1924,13 @@ class LogViewer {
         this.showToast('Filtered: ' + text);
     }
 
-    // ---------- Helpers ----------
+    // ---------- Helpers (delegate to LogParser for testable purity) ----------
 
-    _healthLabel(score) {
-        if (score >= 90) return 'Excellent';
-        if (score >= 75) return 'Good';
-        if (score >= 50) return 'Fair';
-        return 'Critical';
-    }
-
-    _healthClass(score) {
-        if (score >= 90) return 'health-excellent';
-        if (score >= 75) return 'health-good';
-        if (score >= 50) return 'health-fair';
-        return 'health-critical';
-    }
-
-    _formatSpan(ms) {
-        const totalMin = Math.floor(ms / 60000);
-        const days = Math.floor(totalMin / 1440);
-        const hours = Math.floor((totalMin % 1440) / 60);
-        const mins = totalMin % 60;
-        const parts = [];
-        if (days) parts.push(days + 'd');
-        if (hours) parts.push(hours + 'h');
-        if (mins || !parts.length) parts.push(mins + 'm');
-        return parts.join(' ');
-    }
-
-    _formatNumber(n) {
-        if (n == null || isNaN(n)) return '0';
-        if (n >= 1000) return n.toLocaleString();
-        return String(n);
-    }
-
-    _formatMs(ms) {
-        if (ms == null || !isFinite(ms)) return '—';
-        if (ms < 1) return ms.toFixed(2);
-        if (ms < 100) return ms.toFixed(1);
-        return Math.round(ms).toString();
-    }
+    _healthLabel(score)  { return LogParser.healthLabel(score); }
+    _healthClass(score)  { return LogParser.healthClass(score); }
+    _formatSpan(ms)      { return LogParser.formatSpan(ms); }
+    _formatNumber(n)     { return LogParser.formatNumber(n); }
+    _formatMs(ms)        { return LogParser.formatMs(ms); }
 
     _renderMetaStrip(firstDate, lastDate, spanMs, total, health, healthLabel) {
         const fmt = (d) => d.toISOString().slice(0, 16).replace('T', ' ');
