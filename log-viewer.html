@@ -18,9 +18,9 @@
             <h1>
                 <span>Log Viewer Pro</span>
                 <div class="theme-toggle" role="group" aria-label="Theme">
-                    <button class="theme-btn light active" data-theme="light" title="Light theme" aria-label="Light theme" aria-pressed="true"></button>
-                    <button class="theme-btn dark" data-theme="dark" title="Dark theme" aria-label="Dark theme" aria-pressed="false"></button>
-                    <button class="theme-btn blue" data-theme="blue" title="Blue theme" aria-label="Blue theme" aria-pressed="false"></button>
+                    <button type="button" class="theme-btn light active" data-theme="light" title="Light theme" aria-label="Light theme" aria-pressed="true"></button>
+                    <button type="button" class="theme-btn dark" data-theme="dark" title="Dark theme" aria-label="Dark theme" aria-pressed="false"></button>
+                    <button type="button" class="theme-btn blue" data-theme="blue" title="Blue theme" aria-label="Blue theme" aria-pressed="false"></button>
                 </div>
             </h1>
             <div class="controls">
@@ -30,14 +30,19 @@
                         <input type="file" id="fileInput" accept=".txt,.log" multiple>
                     </div>
                     <input type="text" id="searchBox" class="search-box" placeholder='Search   ( press / )'>
+                    <div class="search-mods" role="group" aria-label="Search options">
+                        <button type="button" class="search-mod" data-mod="case" title="Match case" aria-label="Match case" aria-pressed="false">Aa</button>
+                        <button type="button" class="search-mod" data-mod="word" title="Whole word" aria-label="Whole word" aria-pressed="false">W</button>
+                        <button type="button" class="search-mod" data-mod="regex" title="Regular expression" aria-label="Regular expression" aria-pressed="false">.*</button>
+                    </div>
                     <div class="filter-group" role="group" aria-label="Filter by log level">
-                        <button class="filter-btn filter-debug active" data-level="debug"
+                        <button type="button" class="filter-btn filter-debug active" data-level="debug"
                             title="Toggle debug entries" aria-label="Toggle debug entries" aria-pressed="true">DBG</button>
-                        <button class="filter-btn filter-info active" data-level="information"
+                        <button type="button" class="filter-btn filter-info active" data-level="information"
                             title="Toggle information entries" aria-label="Toggle information entries" aria-pressed="true">INF</button>
-                        <button class="filter-btn filter-warning active" data-level="warning"
+                        <button type="button" class="filter-btn filter-warning active" data-level="warning"
                             title="Toggle warning entries" aria-label="Toggle warning entries" aria-pressed="true">WRN</button>
-                        <button class="filter-btn filter-error active" data-level="error"
+                        <button type="button" class="filter-btn filter-error active" data-level="error"
                             title="Toggle error entries" aria-label="Toggle error entries" aria-pressed="true">ERR</button>
                     </div>
                 </div>
@@ -49,18 +54,23 @@
                         <label for="dateTo">To:</label>
                         <input type="datetime-local" id="dateTo" class="date-input"
                             title="Filter logs until this date/time">
-                        <button class="btn btn-secondary" id="clearDateBtn">Clear</button>
+                        <button type="button" class="btn btn-secondary" id="clearDateBtn">Clear</button>
                     </div>
                     <button type="button" class="btn btn-secondary" id="resetBtn" title="Reset all filters and search">Reset filters</button>
+                    <div class="views-wrap">
+                        <button type="button" class="btn btn-secondary" id="viewsBtn" title="Saved views" aria-haspopup="true" aria-expanded="false">Views</button>
+                        <div class="views-popover hidden" id="viewsPopover" role="dialog" aria-label="Saved views"></div>
+                    </div>
                     <select id="pageSize" class="date-input" title="Number of logs per page" aria-label="Logs per page">
                         <option value="50">50/page</option>
                         <option value="100" selected>100/page</option>
                         <option value="200">200/page</option>
                         <option value="500">500/page</option>
                     </select>
-                    <button class="btn btn-success" id="exportBtn">Export</button>
-                    <button class="btn btn-danger" id="clearBtn">Clear</button>
-                    <button class="btn btn-primary" id="reportsBtn">Reports</button>
+                    <button type="button" class="btn btn-secondary hidden" id="tailBtn" title="Watch a file for new entries">Tail</button>
+                    <button type="button" class="btn btn-success" id="exportBtn">Export</button>
+                    <button type="button" class="btn btn-danger" id="clearBtn">Clear</button>
+                    <button type="button" class="btn btn-primary" id="reportsBtn">Reports</button>
                 </div>
             </div>
             <div class="stats-container">
@@ -111,11 +121,11 @@
             </div>
         </div>
         <div class="pagination hidden" id="pagination">
-            <button id="firstBtn">First</button>
-            <button id="prevBtn">Prev</button>
+            <button type="button" id="firstBtn">First</button>
+            <button type="button" id="prevBtn">Prev</button>
             <span id="pageInfo">Page 1</span>
-            <button id="nextBtn">Next</button>
-            <button id="lastBtn">Last</button>
+            <button type="button" id="nextBtn">Next</button>
+            <button type="button" id="lastBtn">Last</button>
         </div>
     </div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -128,7 +138,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h2 class="modal-title" id="logModalTitle">Log Details</h2>
-                <button class="modal-close" id="modalClose" aria-label="Close">&times;</button>
+                <button type="button" class="modal-close" id="modalClose" aria-label="Close">&times;</button>
             </div>
             <div class="modal-section">
                 <div class="modal-section-title">Information</div>
@@ -160,9 +170,9 @@
                 <div class="modal-exception" id="modalException"></div>
             </div>
             <div class="modal-actions">
-                <button class="btn btn-secondary" id="modalTrace">Show trace</button>
-                <button class="btn btn-success" id="modalCopy">Copy full log</button>
-                <button class="btn btn-secondary" id="modalCloseBtn">Close</button>
+                <button type="button" class="btn btn-secondary" id="modalTrace">Show trace</button>
+                <button type="button" class="btn btn-success" id="modalCopy">Copy full log</button>
+                <button type="button" class="btn btn-secondary" id="modalCloseBtn">Close</button>
             </div>
         </div>
     </div>
@@ -170,7 +180,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h2 class="modal-title" id="reportsModalTitle">Analytics &amp; Reports</h2>
-                <button class="modal-close" id="reportsClose" aria-label="Close">&times;</button>
+                <button type="button" class="modal-close" id="reportsClose" aria-label="Close">&times;</button>
             </div>
             <div id="reportsContent">
                 <div class="empty-state">
@@ -178,8 +188,8 @@
                 </div>
             </div>
             <div class="modal-actions">
-                <button class="btn btn-success" id="exportReportBtn">Export Report</button>
-                <button class="btn btn-secondary" id="reportsCloseBtn">Close</button>
+                <button type="button" class="btn btn-success" id="exportReportBtn">Export Report</button>
+                <button type="button" class="btn btn-secondary" id="reportsCloseBtn">Close</button>
             </div>
         </div>
     </div>

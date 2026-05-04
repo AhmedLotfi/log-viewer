@@ -21,7 +21,13 @@ class LogViewer {
         // Sort state for exception tables (shared across by-type / by-reason tabs).
         this.exceptionSortColumn = 'count'; // 'name' | 'count'
         this.exceptionSortDirection = 'desc'; // 'asc' | 'desc'
+        // Search modes (session-only — not persisted in URL).
+        this.searchOptions = { caseSensitive: false, wholeWord: false, regex: false };
+        this._searchPredicate = null; // compiled (text) -> boolean, null when no query
+        this._searchHighlightRegex = null; // RegExp for highlight() use
+        this._searchInvalid = false; // last regex compile failed
         this.STORAGE_KEY_THEME = 'logViewer.theme';
+        this.STORAGE_KEY_VIEWS = 'logViewer.views';
         this.init();
         this.restoreTheme();
     }
@@ -56,6 +62,7 @@ class LogViewer {
         });
         document.getElementById('clearBtn').addEventListener('click', () => this.clear());
         document.getElementById('resetBtn').addEventListener('click', () => this.resetFilters());
+        document.getElementById('viewsBtn').addEventListener('click', () => this.toggleViewsPopover());
         document.getElementById('exportBtn').addEventListener('click', () => this.exportLogs());
         document.getElementById('clearDateBtn').addEventListener('click', () => this.clearDateFilter());
         document.getElementById('dateFrom').addEventListener('change', (e) => this.setDateFrom(e.target.value));
@@ -85,6 +92,9 @@ class LogViewer {
         document.querySelectorAll('.theme-btn').forEach(btn => {
             btn.addEventListener('click', () => this.setTheme(btn.dataset.theme));
         });
+        document.querySelectorAll('.search-mod').forEach(btn => {
+            btn.addEventListener('click', () => this.toggleSearchMod(btn));
+        });
         // Exception tab handlers
         document.querySelectorAll('.exception-tab-btn').forEach(btn => {
             btn.addEventListener('click', (e) => this.switchExceptionTab(e.target.dataset.tab));
@@ -92,6 +102,84 @@ class LogViewer {
         this.attachKeyboardShortcuts();
         this.attachDragAndDrop();
         this.attachUrlState();
+        this.attachTailMode();
+    }
+
+    /**
+     * Tail mode uses the File System Access API to keep a single file open
+     * and re-read it when its size or mtime changes. Browsers without the API
+     * (Firefox/Safari at time of writing) hide the button entirely.
+     */
+    attachTailMode() {
+        const btn = document.getElementById('tailBtn');
+        if (!btn) return;
+        if (!('showOpenFilePicker' in window)) {
+            // Already hidden in HTML; keep it hidden.
+            return;
+        }
+        btn.classList.remove('hidden');
+        btn.addEventListener('click', () => this.toggleTail());
+    }
+
+    async toggleTail() {
+        if (this._tailHandle) {
+            this.stopTail();
+            return;
+        }
+        try {
+            const [handle] = await window.showOpenFilePicker({
+                types: [{ description: 'Log files', accept: { 'text/plain': ['.txt', '.log'] } }],
+                multiple: false
+            });
+            this._tailHandle = handle;
+            this._tailLastSize = -1;
+            this._tailLastModified = -1;
+            const btn = document.getElementById('tailBtn');
+            btn.classList.add('active');
+            btn.textContent = 'Stop tail';
+            this.showToast('Tailing: ' + handle.name);
+            await this._tailPoll();
+            this._tailInterval = setInterval(() => this._tailPoll(), 2000);
+        } catch (e) {
+            // AbortError = user dismissed the picker — silent.
+            if (e && e.name !== 'AbortError') {
+                console.error('Tail start failed:', e);
+                this.showToast('Tail failed: ' + (e.message || e.name));
+            }
+        }
+    }
+
+    stopTail() {
+        if (this._tailInterval) clearInterval(this._tailInterval);
+        this._tailInterval = null;
+        this._tailHandle = null;
+        const btn = document.getElementById('tailBtn');
+        if (btn) {
+            btn.classList.remove('active');
+            btn.textContent = 'Tail';
+        }
+        this.showToast('Tail stopped');
+    }
+
+    async _tailPoll() {
+        if (!this._tailHandle) return;
+        try {
+            const file = await this._tailHandle.getFile();
+            if (file.size === this._tailLastSize && file.lastModified === this._tailLastModified) {
+                return; // no change since last poll
+            }
+            this._tailLastSize = file.size;
+            this._tailLastModified = file.lastModified;
+            const text = await file.text();
+            this.loadedFiles = 1;
+            this.loadedFileNames = [file.name];
+            this.parseLogs(text);
+        } catch (e) {
+            // File moved, deleted, or permission revoked.
+            console.error('Tail poll error:', e);
+            this.stopTail();
+            this.showToast('Tail stopped: file unavailable');
+        }
     }
 
     attachDragAndDrop() {
@@ -149,7 +237,8 @@ class LogViewer {
         if (search != null && search !== this.searchQuery) {
             const box = document.getElementById('searchBox');
             box.value = search;
-            this.searchQuery = search.toLowerCase();
+            this.searchQuery = search;
+            this._compileSearch();
         }
         for (const lvl of ['debug', 'information', 'warning', 'error']) {
             const v = params.get(lvl);
@@ -295,6 +384,158 @@ class LogViewer {
 
     setTheme(theme) {
         this.applyTheme(theme, true);
+    }
+
+    // ---------- Saved views ----------
+
+    _loadViews() {
+        try {
+            const json = localStorage.getItem(this.STORAGE_KEY_VIEWS);
+            return json ? JSON.parse(json) : [];
+        } catch (e) { return []; }
+    }
+
+    _writeViews(views) {
+        try {
+            localStorage.setItem(this.STORAGE_KEY_VIEWS, JSON.stringify(views));
+        } catch (e) { /* storage blocked */ }
+    }
+
+    saveCurrentView() {
+        const name = (prompt('Name this view:', '') || '').trim();
+        if (!name) return;
+        const views = this._loadViews();
+        const state = {
+            name,
+            query: this.searchQuery || '',
+            options: { ...this.searchOptions },
+            levels: { ...this.filters },
+            dateFrom: document.getElementById('dateFrom').value || null,
+            dateTo: document.getElementById('dateTo').value || null,
+            hour: this.hourFilter,
+            savedAt: new Date().toISOString()
+        };
+        const existing = views.findIndex(v => v.name === name);
+        if (existing >= 0) views[existing] = state; else views.unshift(state);
+        this._writeViews(views);
+        this.showToast('View saved: ' + name);
+        this._renderViewsPopover();
+    }
+
+    applyView(name) {
+        const views = this._loadViews();
+        const v = views.find(view => view.name === name);
+        if (!v) return;
+
+        this.searchQuery = v.query || '';
+        document.getElementById('searchBox').value = this.searchQuery;
+        this.searchOptions = Object.assign(
+            { caseSensitive: false, wholeWord: false, regex: false },
+            v.options || {}
+        );
+        document.querySelectorAll('.search-mod').forEach(btn => {
+            const key = btn.dataset.mod === 'case' ? 'caseSensitive'
+                : btn.dataset.mod === 'word' ? 'wholeWord'
+                : 'regex';
+            const active = !!this.searchOptions[key];
+            btn.classList.toggle('active', active);
+            btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+        this._compileSearch();
+
+        this.filters = Object.assign(
+            { debug: true, information: true, warning: true, error: true },
+            v.levels || {}
+        );
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            const active = !!this.filters[btn.dataset.level];
+            btn.classList.toggle('active', active);
+            btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+
+        document.getElementById('dateFrom').value = v.dateFrom || '';
+        document.getElementById('dateTo').value = v.dateTo || '';
+        if (v.dateFrom) this.setDateFrom(v.dateFrom); else this.dateFrom = null;
+        if (v.dateTo) this.setDateTo(v.dateTo); else this.dateTo = null;
+
+        this.hourFilter = (typeof v.hour === 'number') ? v.hour : null;
+        this.currentPage = 1;
+        this.applyFilters();
+        this.closeViewsPopover();
+        this.showToast('Applied: ' + name);
+    }
+
+    deleteView(name) {
+        const views = this._loadViews().filter(v => v.name !== name);
+        this._writeViews(views);
+        this._renderViewsPopover();
+        this.showToast('Deleted: ' + name);
+    }
+
+    toggleViewsPopover() {
+        const pop = document.getElementById('viewsPopover');
+        const btn = document.getElementById('viewsBtn');
+        if (!pop.classList.contains('hidden')) {
+            this.closeViewsPopover();
+            return;
+        }
+        this._renderViewsPopover();
+        pop.classList.remove('hidden');
+        btn.setAttribute('aria-expanded', 'true');
+        // Close on outside click. Defer one tick so the opening click itself
+        // doesn't immediately re-trigger close.
+        setTimeout(() => {
+            this._viewsOutsideHandler = (e) => {
+                if (!pop.contains(e.target) && !btn.contains(e.target)) {
+                    this.closeViewsPopover();
+                }
+            };
+            document.addEventListener('click', this._viewsOutsideHandler);
+        }, 0);
+    }
+
+    closeViewsPopover() {
+        const pop = document.getElementById('viewsPopover');
+        const btn = document.getElementById('viewsBtn');
+        pop.classList.add('hidden');
+        btn.setAttribute('aria-expanded', 'false');
+        if (this._viewsOutsideHandler) {
+            document.removeEventListener('click', this._viewsOutsideHandler);
+            this._viewsOutsideHandler = null;
+        }
+    }
+
+    _renderViewsPopover() {
+        const pop = document.getElementById('viewsPopover');
+        const views = this._loadViews();
+        let html = '<div class="views-popover__head">';
+        html += '<button type="button" class="btn btn-secondary views-popover__save">Save current view&hellip;</button>';
+        html += '</div>';
+        if (views.length === 0) {
+            html += '<p class="views-popover__empty">No saved views yet. Save your current filters to bookmark them.</p>';
+        } else {
+            html += '<ul class="views-popover__list">';
+            for (const v of views) {
+                html += '<li class="views-popover__item" data-view-name="' + this.escape(v.name) + '">';
+                html += '<button type="button" class="views-popover__apply" data-action="apply">' + this.escape(v.name) + '</button>';
+                html += '<button type="button" class="views-popover__delete" data-action="delete" aria-label="Delete view">×</button>';
+                html += '</li>';
+            }
+            html += '</ul>';
+        }
+        pop.innerHTML = html;
+        const saveBtn = pop.querySelector('.views-popover__save');
+        if (saveBtn) saveBtn.addEventListener('click', () => this.saveCurrentView());
+        pop.querySelectorAll('[data-action]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const item = e.target.closest('[data-view-name]');
+                if (!item) return;
+                const name = item.dataset.viewName;
+                if (btn.dataset.action === 'apply') this.applyView(name);
+                else if (btn.dataset.action === 'delete') this.deleteView(name);
+            });
+        });
     }
 
     showToast(msg) {
@@ -612,7 +853,9 @@ class LogViewer {
 
             if (this.logs.length > 0) {
                 this.logs.sort((a, b) => a.date - b.date);
-                this.currentPage = 1;
+                // Preserve the URL-loaded currentPage if still valid; otherwise clamp.
+                const maxPage = Math.max(1, Math.ceil(this.logs.length / this.logsPerPage));
+                this.currentPage = Math.min(Math.max(1, this.currentPage || 1), maxPage);
                 this.applyFilters();
                 this.updateStats();
 
@@ -648,9 +891,71 @@ class LogViewer {
     }
 
     search(q) {
-        this.searchQuery = q.toLowerCase();
+        this.searchQuery = q || '';
+        this._compileSearch();
         this.currentPage = 1;
         this.applyFilters();
+    }
+
+    toggleSearchMod(btn) {
+        const mod = btn.dataset.mod;
+        if (!mod || !(mod in { case: 1, word: 1, regex: 1 })) return;
+        const key = mod === 'case' ? 'caseSensitive'
+            : mod === 'word' ? 'wholeWord'
+            : 'regex';
+        this.searchOptions[key] = !this.searchOptions[key];
+        btn.classList.toggle('active', this.searchOptions[key]);
+        btn.setAttribute('aria-pressed', this.searchOptions[key] ? 'true' : 'false');
+        this._compileSearch();
+        this.currentPage = 1;
+        this.applyFilters();
+    }
+
+    /**
+     * Build the search predicate + highlight regex from the current query and
+     * options. Called whenever query text or options change.
+     */
+    _compileSearch() {
+        this._searchInvalid = false;
+        const raw = this.searchQuery || '';
+        if (!raw) {
+            this._searchPredicate = null;
+            this._searchHighlightRegex = null;
+            this._reflectSearchInvalid(false);
+            return;
+        }
+        const opts = this.searchOptions;
+        const flags = opts.caseSensitive ? 'g' : 'gi';
+        try {
+            let pattern;
+            if (opts.regex) {
+                pattern = raw;
+            } else {
+                pattern = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            }
+            if (opts.wholeWord) {
+                pattern = '\\b' + pattern + '\\b';
+            }
+            const re = new RegExp(pattern, flags);
+            // Test predicate uses a fresh regex (without /g) so .test() doesn't
+            // advance lastIndex on the shared instance.
+            const testRe = new RegExp(pattern, opts.caseSensitive ? '' : 'i');
+            this._searchPredicate = (text) => testRe.test(text);
+            this._searchHighlightRegex = re;
+            this._reflectSearchInvalid(false);
+        } catch (e) {
+            this._searchPredicate = null;
+            this._searchHighlightRegex = null;
+            this._searchInvalid = true;
+            this._reflectSearchInvalid(true);
+        }
+    }
+
+    _reflectSearchInvalid(invalid) {
+        const box = document.getElementById('searchBox');
+        if (!box) return;
+        box.classList.toggle('search-invalid', !!invalid);
+        box.title = invalid ? 'Invalid regular expression' : '';
     }
 
     setDateFrom(v) {
@@ -699,6 +1004,12 @@ class LogViewer {
     resetFilters() {
         this.searchQuery = '';
         document.getElementById('searchBox').value = '';
+        this.searchOptions = { caseSensitive: false, wholeWord: false, regex: false };
+        document.querySelectorAll('.search-mod').forEach(btn => {
+            btn.classList.remove('active');
+            btn.setAttribute('aria-pressed', 'false');
+        });
+        this._compileSearch();
         this.dateFrom = this.dateTo = null;
         document.getElementById('dateFrom').value = '';
         document.getElementById('dateTo').value = '';
@@ -714,14 +1025,15 @@ class LogViewer {
     }
 
     applyFilters() {
+        const predicate = this._searchPredicate;
         this.filteredLogs = this.logs.filter(log => {
             if (!this.filters[log.level]) return false;
             if (this.dateFrom && log.date < this.dateFrom) return false;
             if (this.dateTo && log.date > this.dateTo) return false;
             if (this.hourFilter !== null && log.date.getHours() !== this.hourFilter) return false;
-            if (this.searchQuery) {
-                const txt = (log.message + ' ' + log.exception).toLowerCase();
-                if (!txt.includes(this.searchQuery)) return false;
+            if (predicate) {
+                const txt = log.message + ' ' + log.exception;
+                if (!predicate(txt)) return false;
             }
             return true;
         });
@@ -803,6 +1115,7 @@ class LogViewer {
             case 'search':
                 this.searchQuery = '';
                 document.getElementById('searchBox').value = '';
+                this._compileSearch();
                 break;
             case 'levels':
                 this.filters = { debug: true, information: true, warning: true, error: true };
@@ -1265,9 +1578,11 @@ class LogViewer {
     }
 
     highlight(txt) {
-        if (!this.searchQuery) return txt;
-        const re = new RegExp('(' + this.searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
-        return txt.replace(re, '<span class="highlight">$1</span>');
+        const re = this._searchHighlightRegex;
+        if (!re) return txt;
+        // Reset lastIndex since we share the /g regex across calls.
+        re.lastIndex = 0;
+        return txt.replace(re, '<span class="highlight">$&</span>');
     }
 
     copyLog(log) {

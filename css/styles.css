@@ -293,6 +293,132 @@ body.theme-dark, body.theme-blue {
 }
 .search-box::placeholder { color: var(--text-subtle); }
 .search-box:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+.search-box.search-invalid { border-color: var(--danger); box-shadow: 0 0 0 3px rgba(156, 47, 16, 0.18); }
+
+/* Search-mode toggle buttons (Aa / W / .*) */
+.search-mods {
+    display: inline-flex;
+    gap: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    overflow: hidden;
+    flex-shrink: 0;
+}
+.search-mod {
+    padding: 6px 10px;
+    border: 0;
+    border-right: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-subtle);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    line-height: 1.2;
+    min-width: 28px;
+    transition: background var(--transition), color var(--transition);
+}
+.search-mod[data-mod="word"] { text-decoration: underline; text-underline-offset: 2px; }
+.search-mod:last-child { border-right: 0; }
+.search-mod:hover { background: var(--bg-soft); color: var(--ink); }
+.search-mod.active { background: var(--accent); color: #fff; }
+.search-mod:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* ---------- Tail mode button (active state) ---------- */
+.btn#tailBtn.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+}
+.btn#tailBtn.active::before {
+    content: '';
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    background: currentColor;
+    border-radius: 50%;
+    margin-right: 4px;
+    animation: tail-pulse 1.4s ease-in-out infinite;
+}
+@keyframes tail-pulse {
+    0%, 100% { opacity: 0.35; transform: scale(0.85); }
+    50% { opacity: 1; transform: scale(1); }
+}
+
+/* ---------- Saved views popover ---------- */
+.views-wrap { position: relative; display: inline-block; }
+.views-popover {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 280px;
+    max-width: 360px;
+    max-height: 60vh;
+    overflow-y: auto;
+    background: var(--bg-elevated);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    padding: 12px;
+    z-index: 100;
+}
+.views-popover__head { margin-bottom: 10px; }
+.views-popover__save { width: 100%; justify-content: center; }
+.views-popover__empty {
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: 8px 4px;
+    margin: 0;
+    line-height: 1.5;
+    font-family: var(--font-sans);
+}
+.views-popover__list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.views-popover__item { display: flex; gap: 4px; align-items: stretch; }
+.views-popover__apply {
+    flex: 1;
+    padding: 8px 10px;
+    text-align: left;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    cursor: pointer;
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+    transition: background var(--transition), color var(--transition), border-color var(--transition);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.views-popover__apply:hover {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+}
+.views-popover__delete {
+    width: 32px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    font-size: 16px;
+    line-height: 1;
+    transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+.views-popover__delete:hover {
+    background: var(--danger);
+    color: var(--text-inverse);
+    border-color: var(--danger);
+}
 
 /* Filter pill group — segmented, journal-style */
 .filter-group {
