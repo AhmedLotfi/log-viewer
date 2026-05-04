@@ -339,7 +339,8 @@ class LogViewer {
                             const statusCount = stats.statusCodes.get(status) || 0;
                             stats.statusCodes.set(status, statusCount + 1);
 
-                            if (!status.startsWith('2')) {
+                            // Treat only 4xx and 5xx as errors. 3xx redirects are not failures.
+                            if (status.startsWith('4') || status.startsWith('5')) {
                                 stats.errors++;
                             }
 
@@ -921,581 +922,507 @@ class LogViewer {
 
     generateReports() {
         if (!this.logs.length) {
-            document.getElementById('reportsContent').innerHTML = '<div class="empty-state"><div class="empty-state-icon">📊</div><h2>No Data Available</h2><p>Load log files to generate reports</p></div>';
+            document.getElementById('reportsContent').innerHTML =
+                '<div class="empty-state"><h2>No data</h2><p>Load log files to generate reports.</p></div>';
             return;
         }
 
-        const dateRange = this.formatDate(this.logs[0].date) + ' to ' + this.formatDate(this.logs[this.logs.length - 1].date);
+        // ---------- Time-span calculations (used everywhere) ----------
+        const firstDate = this.logs[0].date;
+        const lastDate = this.logs[this.logs.length - 1].date;
+        const spanMs = Math.max(1, lastDate - firstDate);
+        const spanHours = spanMs / 3600000;
+        const spanMinutes = spanMs / 60000;
 
-        // Calculate total errors
-        const totalErrors = this.logs.filter(log => log.level === 'error').length;
-
-        // Count logs by level
-        const levelCounts = {};
-        this.logs.forEach(log => {
-            levelCounts[log.level] = (levelCounts[log.level] || 0) + 1;
-        });
-
-        // Count logs by thread
+        // ---------- Aggregations ----------
+        const total = this.logs.length;
+        const levelCounts = { debug: 0, information: 0, warning: 0, error: 0 };
         const threadCounts = {};
-        this.logs.forEach(log => {
+        const hourCounts = new Array(24).fill(0);
+
+        for (const log of this.logs) {
+            levelCounts[log.level] = (levelCounts[log.level] || 0) + 1;
             const thread = log.correlationId || log.threadId;
             threadCounts[thread] = (threadCounts[thread] || 0) + 1;
-        });
+            hourCounts[log.date.getHours()]++;
+        }
 
-        // Count logs by hour
-        const hourCounts = {};
-        this.logs.forEach(log => {
-            const hour = log.date.getHours();
-            hourCounts[hour] = (hourCounts[hour] || 0) + 1;
-        });
+        // Level-driven health (rate-based, scales with volume)
+        const errorRate = (levelCounts.error / total) * 100;
+        const warningRate = (levelCounts.warning / total) * 100;
+        const logHealth = Math.max(0, Math.min(100, Math.round(100 - errorRate * 5 - warningRate * 1.5)));
+        const logHealthLabel = this._healthLabel(logHealth);
 
-        // Parse exceptions by TYPE and REASON
+        // Parse exception responses
         this.parseExceptionResponses();
 
-        // Generate HTML report
-        console.log('Generating reports with:', {
-            apiCallsSize: this.apiCalls.size,
-            innerApiCallsSize: this.innerApiCalls?.size,
-            exceptionsSize: this.exceptions.size,
-            exceptionResponsesSize: this.exceptionResponses?.size
-        });
+        // ---------- HTML ----------
+        let html = '';
 
-        let html = '<div class="report-info"><strong>Date Range:</strong> ' + dateRange + '</div>';
+        // Top meta strip
+        html += this._renderMetaStrip(firstDate, lastDate, spanMs, total, logHealth, logHealthLabel);
 
-        // Level distribution
-        html += '<div class="report-section">';
-        html += '<h3 class="report-title">📊 Log Level Distribution</h3>';
-        
-        const total = this.logs.length;
-        const sortedLevels = Object.entries(levelCounts).sort((a, b) => b[1] - a[1]);
-        
-        // Calculate health score (100 = all debug/info, 0 = all errors)
-        const errorCount = levelCounts.error || 0;
-        const warningCount = levelCounts.warning || 0;
-        const healthScore = Math.max(0, 100 - ((errorCount * 5) + (warningCount * 2)));
-        const healthStatus = healthScore >= 80 ? '✅ Excellent' : healthScore >= 60 ? '⚠️ Good' : healthScore >= 40 ? '⚡ Fair' : '❌ Critical';
-        const healthColor = healthScore >= 80 ? '#22c55e' : healthScore >= 60 ? '#eab308' : healthScore >= 40 ? '#f97316' : '#ef4444';
-        
-        // Summary Cards for each level
-        html += '<div class="level-distribution-cards">';
-        sortedLevels.forEach(([level, count]) => {
-            const pct = ((count / total) * 100).toFixed(1);
-            const levelClass = 'level-' + level.toLowerCase();
-            html += '<div class="distribution-card ' + levelClass + '">';
-            html += '<div class="distribution-level-badge">' + level.toUpperCase() + '</div>';
-            html += '<div class="distribution-count">' + count + '</div>';
-            html += '<div class="distribution-percentage">' + pct + '%</div>';
-            html += '<div class="distribution-bar"><div class="distribution-bar-fill" style="width: ' + pct + '%"></div></div>';
-            html += '</div>';
-        });
-        html += '</div>';
-        
-        // Statistics Table
-        html += '<div class="level-stats-section">';
-        html += '<h4 class="level-stats-title">📈 Distribution Statistics</h4>';
-        html += '<table class="report-table level-stats-table">';
-        html += '<thead><tr><th>Level</th><th class="numeric">Count</th><th class="numeric">%</th><th class="numeric">Avg/Hour</th></tr></thead>';
-        html += '<tbody>';
-        sortedLevels.forEach(([level, count]) => {
-            const pct = ((count / total) * 100).toFixed(1);
-            const levelClass = 'level-' + level.toLowerCase();
-            const avgPerHour = (count / 24).toFixed(1);
-            html += '<tr class="level-row ' + levelClass + '">';
-            html += '<td class="level-cell"><span class="level-badge ' + level.toLowerCase() + '">' + level.toUpperCase() + '</span></td>';
-            html += '<td class="numeric">' + count + '</td>';
-            html += '<td class="numeric">' + pct + '%</td>';
-            html += '<td class="numeric">' + avgPerHour + '</td>';
-            html += '</tr>';
-        });
-        html += '</tbody></table>';
-        html += '</div>';
-        html += '</div>';
+        // I. Logs distribution
+        html += this._renderLogDistribution(levelCounts, total, spanHours);
 
-        // API Performance Section
-        console.log('API Calls Map:', Array.from(this.apiCalls.entries()));
-
+        // II. API performance
         if (this.apiCalls && this.apiCalls.size > 0) {
-            console.log('Generating API Performance section with', this.apiCalls.size, 'entries');
-            
-            // Calculate API statistics
-            let totalCalls = 0;
-            let totalTime = 0;
-            let totalErrors = 0;
-            let slowestEndpoint = { path: '', avgTime: 0 };
-            let fastestEndpoint = { path: '', avgTime: Infinity };
-            let highestErrorRate = { path: '', rate: 0 };
-            const endpoints = [];
-
-            try {
-                for (const [path, stats] of this.apiCalls) {
-                    const avgTime = stats.count > 0 ? stats.totalTime / stats.count : 0;
-                    const errorRate = stats.count > 0 ? (stats.errors / stats.count) * 100 : 0;
-                    
-                    totalCalls += stats.count;
-                    totalTime += stats.totalTime;
-                    totalErrors += stats.errors;
-                    
-                    if (avgTime > slowestEndpoint.avgTime) {
-                        slowestEndpoint = { path, avgTime };
-                    }
-                    if (avgTime < fastestEndpoint.avgTime) {
-                        fastestEndpoint = { path, avgTime };
-                    }
-                    if (errorRate > highestErrorRate.rate) {
-                        highestErrorRate = { path, rate: errorRate };
-                    }
-                    
-                    endpoints.push({ path, stats, avgTime, errorRate });
-                }
-                
-                // Sort endpoints using the sorting method
-                const sortedEndpoints = this.getSortedApiEndpoints(endpoints);
-                
-                // Calculate API Health Score
-                const apiHealthScore = totalCalls > 0 ? Math.max(0, 100 - ((totalErrors / totalCalls) * 100 * 2)) : 100;
-                const apiHealthStatus = apiHealthScore >= 90 ? '✅ Excellent' : apiHealthScore >= 75 ? '⚡ Good' : apiHealthScore >= 50 ? '⚠️ Fair' : '❌ Poor';
-                const apiHealthColor = apiHealthScore >= 90 ? '#22c55e' : apiHealthScore >= 75 ? '#3b82f6' : apiHealthScore >= 50 ? '#eab308' : '#ef4444';
-                
-                // Response time distribution buckets
-                const fastCount = endpoints.filter(e => e.avgTime < 100).length;
-                const mediumCount = endpoints.filter(e => e.avgTime >= 100 && e.avgTime < 500).length;
-                const slowCount = endpoints.filter(e => e.avgTime >= 500 && e.avgTime < 2000).length;
-                const verySlowCount = endpoints.filter(e => e.avgTime >= 2000).length;
-                
-                // Throughput calculation (calls per minute)
-                const throughputPerMin = (totalCalls / Math.max(1, 60)).toFixed(0);
-                const successRate = totalCalls > 0 ? (((totalCalls - totalErrors) / totalCalls) * 100).toFixed(1) : 100;
-                
-                html += '<div class="report-section">';
-                html += '<h3 class="report-title">🚀 API Performance Overview</h3>';
-                
-                // Summary Cards
-                html += '<div class="api-summary-cards">';
-                html += '<div class="summary-card">';
-                html += '<div class="summary-label">Total API Calls</div>';
-                html += '<div class="summary-value">' + totalCalls + '</div>';
-                html += '</div>';
-                html += '<div class="summary-card">';
-                html += '<div class="summary-label">Success Rate</div>';
-                html += '<div class="summary-value">' + successRate + '<span class="summary-unit">%</span></div>';
-                html += '</div>';
-                html += '<div class="summary-card">';
-                html += '<div class="summary-label">Average Response</div>';
-                html += '<div class="summary-value">' + (totalCalls > 0 ? (totalTime / totalCalls).toFixed(2) : 0) + '<span class="summary-unit">ms</span></div>';
-                html += '</div>';
-                html += '<div class="summary-card">';
-                html += '<div class="summary-label">Throughput</div>';
-                html += '<div class="summary-value">' + throughputPerMin + '<span class="summary-unit">/min</span></div>';
-                html += '</div>';
-                html += '</div>';
-                
-                // API Health Score Card
-                html += '<div class="api-health-score-card">';
-                html += '<div class="api-health-label">API Health</div>';
-                html += '<div class="api-health-value" style="color: ' + apiHealthColor + '">' + Math.round(apiHealthScore) + '/100</div>';
-                html += '<div class="api-health-status">' + apiHealthStatus + '</div>';
-                html += '<div class="api-health-bar"><div class="api-health-bar-fill" style="width: ' + apiHealthScore + '%; background-color: ' + apiHealthColor + ';"></div></div>';
-                html += '</div>';
-                
-                // Response Time Distribution
-                html += '<div class="response-distribution-section">';
-                html += '<h4 class="distribution-title">⏱️ Response Time Distribution</h4>';
-                html += '<div class="response-distribution-cards">';
-                html += '<div class="response-card fast"><div class="response-label">Fast (&lt;100ms)</div><div class="response-count">' + fastCount + '</div><div class="response-bar"><div class="response-bar-fill" style="width: ' + ((fastCount / endpoints.length) * 100 || 0) + '%"></div></div></div>';
-                html += '<div class="response-card medium"><div class="response-label">Medium (100-500ms)</div><div class="response-count">' + mediumCount + '</div><div class="response-bar"><div class="response-bar-fill" style="width: ' + ((mediumCount / endpoints.length) * 100 || 0) + '%"></div></div></div>';
-                html += '<div class="response-card slow"><div class="response-label">Slow (500-2000ms)</div><div class="response-count">' + slowCount + '</div><div class="response-bar"><div class="response-bar-fill" style="width: ' + ((slowCount / endpoints.length) * 100 || 0) + '%"></div></div></div>';
-                html += '<div class="response-card veryflow"><div class="response-label">Very Slow (&gt;2000ms)</div><div class="response-count">' + verySlowCount + '</div><div class="response-bar"><div class="response-bar-fill" style="width: ' + ((verySlowCount / endpoints.length) * 100 || 0) + '%"></div></div></div>';
-                html += '</div>';
-                html += '</div>';
-                
-                // Performance Insights
-                html += '<div class="api-insights">';
-                html += '<div class="insight-item">';
-                html += '<span class="insight-label">⚡ Fastest Endpoint:</span>';
-                html += '<span class="insight-value">' + (fastestEndpoint.avgTime === Infinity ? 'N/A' : this.escape(fastestEndpoint.path) + ' (' + fastestEndpoint.avgTime.toFixed(2) + 'ms)') + '</span>';
-                html += '</div>';
-                html += '<div class="insight-item">';
-                html += '<span class="insight-label">🐢 Slowest Endpoint:</span>';
-                html += '<span class="insight-value">' + this.escape(slowestEndpoint.path) + ' (' + slowestEndpoint.avgTime.toFixed(2) + 'ms)' + '</span>';
-                html += '</div>';
-                html += '<div class="insight-item">';
-                html += '<span class="insight-label">⚠️ Highest Error Rate:</span>';
-                html += '<span class="insight-value">' + this.escape(highestErrorRate.path) + ' (' + highestErrorRate.rate.toFixed(1) + '%)' + '</span>';
-                html += '</div>';
-                html += '</div>';
-                
-                // Detailed table with performance tags
-                html += '<div class="report-description">Endpoints Performance Breakdown - Click headers to sort</div>';
-                html += '<table class="report-table api-performance-table">';
-                html += '<thead><tr>';
-                html += '<th>API Endpoint</th>';
-                
-                // Sortable headers with indicators
-                const getSortIndicator = (column) => {
-                    if (this.apiTableSortColumn !== column) return '';
-                    return this.apiTableSortDirection === 'asc' ? ' ▲' : ' ▼';
-                };
-                
-                const getHeaderClass = (column) => {
-                    return this.apiTableSortColumn === column ? ' class="numeric sortable-col active"' : ' class="numeric sortable-col"';
-                };
-                
-                html += '<th' + getHeaderClass('calls') + ' data-sort-column="calls">Calls' + getSortIndicator('calls') + '</th>';
-                html += '<th' + getHeaderClass('avgTime') + ' data-sort-column="avgTime">Avg Time' + getSortIndicator('avgTime') + '</th>';
-                html += '<th' + getHeaderClass('minTime') + ' data-sort-column="minTime">Min Time' + getSortIndicator('minTime') + '</th>';
-                html += '<th' + getHeaderClass('maxTime') + ' data-sort-column="maxTime">Max Time' + getSortIndicator('maxTime') + '</th>';
-                html += '<th class="numeric">Success Rate</th>';
-                html += '<th class="numeric">Status Codes</th>';
-                html += '<th class="numeric">Performance</th>';
-                html += '</tr></thead>';
-                html += '<tbody>';
-
-                sortedEndpoints.forEach(endpoint => {
-                    const { path, stats, avgTime, errorRate } = endpoint;
-                    const successCallRate = stats.count > 0 ? (((stats.count - stats.errors) / stats.count) * 100).toFixed(1) : 100;
-                    const performanceTag = avgTime < 100 ? '🟢 Optimal' : avgTime < 500 ? '🔵 Good' : avgTime < 2000 ? '🟡 Fair' : '🔴 Critical';
-                    const statusCodeStr = stats.statusCodes && stats.statusCodes.size > 0 
-                        ? Array.from(stats.statusCodes.entries())
-                            .sort((a, b) => b[1] - a[1])
-                            .slice(0, 3)
-                            .map(([code, count]) => code + ':' + count)
-                            .join(' ')
-                        : 'N/A';
-                    
-                    html += '<tr class="api-row api-status-' + (errorRate > 10 ? 'poor' : errorRate > 0 ? 'fair' : 'good') + '">';
-                    html += '<td class="report-code">' + this.escape(path) + '</td>';
-                    html += '<td class="numeric">' + stats.count + '</td>';
-                    html += '<td class="numeric">' + avgTime.toFixed(2) + 'ms</td>';
-                    html += '<td class="numeric">' + (stats.minTime === Infinity ? 0 : stats.minTime).toFixed(0) + 'ms</td>';
-                    html += '<td class="numeric">' + stats.maxTime.toFixed(0) + 'ms</td>';
-                    html += '<td class="numeric">' + successCallRate + '%</td>';
-                    html += '<td class="numeric status-codes">' + statusCodeStr + '</td>';
-                    html += '<td class="status-badge">' + performanceTag + '</td>';
-                    html += '</tr>';
-                });
-                
-                html += '</tbody></table>';
-                html += '</div>';
-            } catch (error) {
-                console.error('Error generating API Performance section:', error);
-                html += '<div class="report-section"><h3 class="report-title">🚀 API Performance</h3><p>Error generating API statistics</p></div>';
-            }
+            html += this._renderApiPerformance(spanMinutes);
         }
 
-        // Exception Response Analysis Section
-        if (this.exceptionResponses && (this.exceptionResponses.byType.size > 0 || this.exceptionResponses.byReason.size > 0)) {
-            let totalExceptions = 0;
-            for (const [_, stats] of this.exceptionResponses.byType) {
-                totalExceptions += stats.count;
-            }
-            
-            html += '<div class="report-section">';
-            html += '<h3 class="report-title">🔍 Exception Response Analysis</h3>';
-            
-            // Summary stats
-            html += '<div class="exception-summary-cards">';
-            html += '<div class="exception-summary-card">';
-            html += '<div class="exception-summary-label">Total Exceptions</div>';
-            html += '<div class="exception-summary-value">' + totalExceptions + '</div>';
-            html += '</div>';
-            html += '<div class="exception-summary-card">';
-            html += '<div class="exception-summary-label">Exception Types</div>';
-            html += '<div class="exception-summary-value">' + this.exceptionResponses.byType.size + '</div>';
-            html += '</div>';
-            html += '<div class="exception-summary-card">';
-            html += '<div class="exception-summary-label">Unique Reasons</div>';
-            html += '<div class="exception-summary-value">' + this.exceptionResponses.byReason.size + '</div>';
-            html += '</div>';
-            html += '</div>';
-            
-            html += '<div class="exception-tabs">';
-            html += '<button class="exception-tab-btn active" data-tab="by-type">Grouped by TYPE</button>';
-            html += '<button class="exception-tab-btn" data-tab="by-reason">Grouped by REASON</button>';
-            html += '</div>';
-
-            // Exception by TYPE
-            let typeEntries = Array.from(this.exceptionResponses.byType.entries());
-            typeEntries.sort((a, b) => b[1].count - a[1].count); // Sort by count descending
-            
-            let typeHtml = '<table class="report-table exception-table">';
-            typeHtml += '<thead><tr>';
-            typeHtml += '<th>Exception Type</th>';
-            typeHtml += '<th class="numeric">Count</th>';
-            typeHtml += '<th class="numeric">Percentage</th>';
-            typeHtml += '<th>Most Common Reason</th>';
-            typeHtml += '<th class="numeric">Reason Count</th>';
-            typeHtml += '</tr></thead>';
-            typeHtml += '<tbody>';
-
-            for (const [type, stats] of typeEntries) {
-                let topReason = 'N/A';
-                let topReasonCount = 0;
-
-                for (const [reason, count] of stats.reasons) {
-                    if (count > topReasonCount) {
-                        topReasonCount = count;
-                        topReason = reason;
-                    }
-                }
-                
-                const percentage = totalExceptions > 0 ? ((stats.count / totalExceptions) * 100).toFixed(1) : 0;
-                const percentageBar = '<div class="exception-percentage-bar" style="width: ' + percentage + '%"></div>';
-
-                typeHtml += '<tr class="exception-row">';
-                typeHtml += '<td class="report-code exception-type-name">' + this.escape(type) + '</td>';
-                typeHtml += '<td class="numeric">' + stats.count + '</td>';
-                typeHtml += '<td class="numeric"><div class="percentage-container">' + percentage + '%' + percentageBar + '</div></td>';
-                typeHtml += '<td class="exception-reason">' + this.escape(topReason) + '</td>';
-                typeHtml += '<td class="numeric">' + topReasonCount + '</td>';
-                typeHtml += '</tr>';
-            }
-            typeHtml += '</tbody></table>';
-
-            // Exception by REASON
-            let reasonEntries = Array.from(this.exceptionResponses.byReason.entries());
-            reasonEntries.sort((a, b) => b[1].count - a[1].count); // Sort by count descending
-            
-            let reasonHtml = '<table class="report-table exception-table">';
-            reasonHtml += '<thead><tr>';
-            reasonHtml += '<th>Reason</th>';
-            reasonHtml += '<th class="numeric">Count</th>';
-            reasonHtml += '<th class="numeric">Percentage</th>';
-            reasonHtml += '<th>Most Common Type</th>';
-            reasonHtml += '<th>Thrown By API</th>';
-            reasonHtml += '</tr></thead>';
-            reasonHtml += '<tbody>';
-
-            for (const [reason, stats] of reasonEntries) {
-                let topType = 'N/A';
-                let topTypeCount = 0;
-
-                for (const [type, count] of stats.types) {
-                    if (count > topTypeCount) {
-                        topTypeCount = count;
-                        topType = type;
-                    }
-                }
-
-                // Find the most common API that threw this reason
-                let topApi = 'N/A';
-                let topApiCount = 0;
-                for (const [api, count] of stats.apis) {
-                    if (count > topApiCount) {
-                        topApiCount = count;
-                        topApi = api;
-                    }
-                }
-                
-                const percentage = totalExceptions > 0 ? ((stats.count / totalExceptions) * 100).toFixed(1) : 0;
-                const percentageBar = '<div class="exception-percentage-bar" style="width: ' + percentage + '%"></div>';
-
-                reasonHtml += '<tr class="exception-row">';
-                reasonHtml += '<td class="report-code exception-reason-name">' + this.escape(reason) + '</td>';
-                reasonHtml += '<td class="numeric">' + stats.count + '</td>';
-                reasonHtml += '<td class="numeric"><div class="percentage-container">' + percentage + '%' + percentageBar + '</div></td>';
-                reasonHtml += '<td class="exception-type">' + this.escape(topType) + '</td>';
-                reasonHtml += '<td class="report-code exception-api">' + this.escape(topApi) + '</td>';
-                reasonHtml += '</tr>';
-            }
-            reasonHtml += '</tbody></table>';
-
-            html += '<div id="exceptionByType" class="exception-tab-content active">' + typeHtml + '</div>';
-            html += '<div id="exceptionByReason" class="exception-tab-content">' + reasonHtml + '</div>';
-            html += '</div>';
-        }
-
-        // Inner HTTP Calls Section
+        // III. Internal HTTP
         if (this.innerApiCalls && this.innerApiCalls.size > 0) {
-            html += '<div class="report-section">';
-            html += '<h3 class="report-title">🔄 Internal HTTP Calls</h3>';
-            html += '<div class="report-description">HTTP requests made within API calls</div>';
-            
-            // Calculate statistics for internal calls
-            let totalInternalCalls = 0;
-            let totalInternalTime = 0;
-            let totalInternalErrors = 0;
-            let slowestInternalCall = { path: '', avgTime: 0 };
-            let fastestInternalCall = { path: '', avgTime: Infinity };
-            const internalEndpoints = [];
-            
-            for (const [path, stats] of this.innerApiCalls) {
-                const avgTime = stats.count > 0 ? stats.totalTime / stats.count : 0;
-                const errorRate = stats.count > 0 ? (stats.errors / stats.count) * 100 : 0;
-                
-                totalInternalCalls += stats.count;
-                totalInternalTime += stats.totalTime;
-                totalInternalErrors += stats.errors;
-                
-                if (avgTime > slowestInternalCall.avgTime) {
-                    slowestInternalCall = { path, avgTime };
-                }
-                if (avgTime < fastestInternalCall.avgTime) {
-                    fastestInternalCall = { path, avgTime };
-                }
-                
-                internalEndpoints.push({ path, stats, avgTime, errorRate });
-            }
-            
-            // Calculate internal call health
-            const internalHealthScore = totalInternalCalls > 0 ? Math.max(0, 100 - ((totalInternalErrors / totalInternalCalls) * 100 * 2)) : 100;
-            const internalHealthStatus = internalHealthScore >= 90 ? '✅ Excellent' : internalHealthScore >= 75 ? '⚡ Good' : internalHealthScore >= 50 ? '⚠️ Fair' : '❌ Poor';
-            const internalHealthColor = internalHealthScore >= 90 ? '#22c55e' : internalHealthScore >= 75 ? '#3b82f6' : internalHealthScore >= 50 ? '#eab308' : '#ef4444';
-            
-            // Response time distribution for internal calls
-            const internalFastCount = internalEndpoints.filter(e => e.avgTime < 100).length;
-            const internalMediumCount = internalEndpoints.filter(e => e.avgTime >= 100 && e.avgTime < 500).length;
-            const internalSlowCount = internalEndpoints.filter(e => e.avgTime >= 500 && e.avgTime < 2000).length;
-            const internalVerySlowCount = internalEndpoints.filter(e => e.avgTime >= 2000).length;
-            
-            const internalSuccessRate = totalInternalCalls > 0 ? (((totalInternalCalls - totalInternalErrors) / totalInternalCalls) * 100).toFixed(1) : 100;
-            
-            // Summary Cards
-            html += '<div class="api-summary-cards">';
-            html += '<div class="summary-card">';
-            html += '<div class="summary-label">Total Internal Calls</div>';
-            html += '<div class="summary-value">' + totalInternalCalls + '</div>';
-            html += '</div>';
-            html += '<div class="summary-card">';
-            html += '<div class="summary-label">Success Rate</div>';
-            html += '<div class="summary-value">' + internalSuccessRate + '<span class="summary-unit">%</span></div>';
-            html += '</div>';
-            html += '<div class="summary-card">';
-            html += '<div class="summary-label">Average Response</div>';
-            html += '<div class="summary-value">' + (totalInternalCalls > 0 ? (totalInternalTime / totalInternalCalls).toFixed(2) : 0) + '<span class="summary-unit">ms</span></div>';
-            html += '</div>';
-            html += '<div class="summary-card">';
-            html += '<div class="summary-label">Unique Endpoints</div>';
-            html += '<div class="summary-value">' + internalEndpoints.length + '</div>';
-            html += '</div>';
-            html += '</div>';
-            
-            // Internal Call Health Score
-            html += '<div class="internal-health-score-card">';
-            html += '<div class="internal-health-label">Internal Call Health</div>';
-            html += '<div class="internal-health-value" style="color: ' + internalHealthColor + '">' + Math.round(internalHealthScore) + '/100</div>';
-            html += '<div class="internal-health-status">' + internalHealthStatus + '</div>';
-            html += '<div class="internal-health-bar"><div class="internal-health-bar-fill" style="width: ' + internalHealthScore + '%; background-color: ' + internalHealthColor + ';"></div></div>';
-            html += '</div>';
-            
-            // Response Time Distribution for Internal Calls
-            html += '<div class="internal-response-distribution-section">';
-            html += '<h4 class="distribution-title">⏱️ Response Time Distribution</h4>';
-            html += '<div class="response-distribution-cards">';
-            html += '<div class="response-card fast"><div class="response-label">Fast (&lt;100ms)</div><div class="response-count">' + internalFastCount + '</div><div class="response-bar"><div class="response-bar-fill" style="width: ' + ((internalFastCount / internalEndpoints.length) * 100 || 0) + '%"></div></div></div>';
-            html += '<div class="response-card medium"><div class="response-label">Medium (100-500ms)</div><div class="response-count">' + internalMediumCount + '</div><div class="response-bar"><div class="response-bar-fill" style="width: ' + ((internalMediumCount / internalEndpoints.length) * 100 || 0) + '%"></div></div></div>';
-            html += '<div class="response-card slow"><div class="response-label">Slow (500-2000ms)</div><div class="response-count">' + internalSlowCount + '</div><div class="response-bar"><div class="response-bar-fill" style="width: ' + ((internalSlowCount / internalEndpoints.length) * 100 || 0) + '%"></div></div></div>';
-            html += '<div class="response-card veryflow"><div class="response-label">Very Slow (&gt;2000ms)</div><div class="response-count">' + internalVerySlowCount + '</div><div class="response-bar"><div class="response-bar-fill" style="width: ' + ((internalVerySlowCount / internalEndpoints.length) * 100 || 0) + '%"></div></div></div>';
-            html += '</div>';
-            html += '</div>';
-            
-            // Insights
-            html += '<div class="api-insights">';
-            html += '<div class="insight-item">';
-            html += '<span class="insight-label">⚡ Fastest Internal Call:</span>';
-            html += '<span class="insight-value">' + (fastestInternalCall.avgTime === Infinity ? 'N/A' : this.escape(fastestInternalCall.path) + ' (' + fastestInternalCall.avgTime.toFixed(2) + 'ms)') + '</span>';
-            html += '</div>';
-            html += '<div class="insight-item">';
-            html += '<span class="insight-label">🐢 Slowest Internal Call:</span>';
-            html += '<span class="insight-value">' + this.escape(slowestInternalCall.path) + ' (' + slowestInternalCall.avgTime.toFixed(2) + 'ms)' + '</span>';
-            html += '</div>';
-            html += '</div>';
-            
-            // Detailed table
-            html += '<div class="report-description">Internal HTTP Endpoints - Sorted by Response Time</div>';
-            html += '<table class="report-table internal-http-table">';
-            html += '<thead><tr>';
-            html += '<th>Method & Path</th>';
-            html += '<th class="numeric">Calls</th>';
-            html += '<th class="numeric">Avg Time</th>';
-            html += '<th class="numeric">Min Time</th>';
-            html += '<th class="numeric">Max Time</th>';
-            html += '<th class="numeric">Success Rate</th>';
-            html += '<th class="numeric">Top Status Codes</th>';
-            html += '<th class="numeric">Performance</th>';
-            html += '</tr></thead>';
-            html += '<tbody>';
-            
-            // Sort by avg time descending
-            internalEndpoints.sort((a, b) => b.avgTime - a.avgTime);
-            
-            internalEndpoints.forEach(endpoint => {
-                const { path, stats, avgTime, errorRate } = endpoint;
-                const minTime = stats.minTime === Infinity ? 0 : stats.minTime;
-                const successCallRate = stats.count > 0 ? (((stats.count - stats.errors) / stats.count) * 100).toFixed(1) : 100;
-                const performanceTag = avgTime < 100 ? '🟢 Fast' : avgTime < 500 ? '🔵 Medium' : avgTime < 2000 ? '🟡 Slow' : '🔴 Very Slow';
-                const statusCodeStr = stats.statusCodes && stats.statusCodes.size > 0
-                    ? Array.from(stats.statusCodes.entries())
-                        .sort((a, b) => b[1] - a[1])
-                        .slice(0, 2)
-                        .map(([code, count]) => code + ':' + count)
-                        .join(' ')
-                    : 'N/A';
-                
-                html += '<tr class="internal-http-row">';
-                html += '<td class="report-code">' + this.escape(path) + '</td>';
-                html += '<td class="numeric">' + stats.count + '</td>';
-                html += '<td class="numeric">' + avgTime.toFixed(2) + 'ms</td>';
-                html += '<td class="numeric">' + minTime.toFixed(0) + 'ms</td>';
-                html += '<td class="numeric">' + stats.maxTime.toFixed(0) + 'ms</td>';
-                html += '<td class="numeric">' + successCallRate + '%</td>';
-                html += '<td class="numeric status-codes">' + statusCodeStr + '</td>';
-                html += '<td class="status-badge">' + performanceTag + '</td>';
-                html += '</tr>';
-            });
-            
-            html += '</tbody></table>';
-            html += '</div>';
+            html += this._renderInternalHttp(spanMinutes);
         }
 
-        // Thread distribution
-        html += '<div class="report-section">';
-        html += '<h3 class="report-title">Thread Distribution</h3>';
-        html += '<div class="report-description">Top 10 most active threads</div>';
-        html += '<table class="report-table">';
-        html += '<tr><th>Thread ID</th><th>Count</th><th>Percentage</th></tr>';
-        Object.entries(threadCounts)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 10)
-            .forEach(([thread, count]) => {
-                const pct = ((count / total) * 100).toFixed(1);
-                html += '<tr>';
-                html += '<td class="report-code">' + this.escape(thread) + '</td>';
-                html += '<td>' + count + '</td>';
-                html += '<td><div class="report-bar-container">' + pct + '%<div class="report-bar" style="width: ' + pct + '%"></div></div></td>';
-                html += '</tr>';
-            });
-        html += '</table>';
-        html += '</div>';
-
-        // Time distribution
-        html += '<div class="report-section">';
-        html += '<h3 class="report-title">Time Distribution</h3>';
-        html += '<div class="timeline-container">';
-        for (let h = 0; h < 24; h++) {
-            const count = hourCounts[h] || 0;
-            const pct = ((count / total) * 100).toFixed(1);
-            html += '<div class="timeline-item">';
-            html += '<div class="timeline-time">' + String(h).padStart(2, '0') + ':00 - ' + String(h).padStart(2, '0') + ':59</div>';
-            html += '<div class="timeline-count">' + count + '</div>';
-            html += '<div class="report-bar" style="width: ' + pct + '%"></div>';
-            html += '</div>';
+        // IV. Exceptions
+        if (this.exceptionResponses &&
+            (this.exceptionResponses.byType.size > 0 || this.exceptionResponses.byReason.size > 0)) {
+            html += this._renderExceptions();
         }
-        html += '</div>';
-        html += '</div>';
+
+        // V. Activity (timeline + threads)
+        html += this._renderActivity(hourCounts, threadCounts, total);
 
         document.getElementById('reportsContent').innerHTML = html;
 
-        // Re-attach tab event listeners for exception tabs
+        // Re-attach event listeners
         document.querySelectorAll('.exception-tab-btn').forEach(btn => {
             btn.addEventListener('click', (e) => this.switchExceptionTab(e.target.dataset.tab));
         });
-        
-        // Attach event listeners for API Performance table headers
         document.querySelectorAll('.api-performance-table .sortable-col').forEach(th => {
-            th.style.cursor = 'pointer';
             th.addEventListener('click', () => this.handleApiTableSort(th.dataset.sortColumn));
         });
+    }
+
+    // ---------- Helpers ----------
+
+    _healthLabel(score) {
+        if (score >= 90) return 'Excellent';
+        if (score >= 75) return 'Good';
+        if (score >= 50) return 'Fair';
+        return 'Critical';
+    }
+
+    _healthClass(score) {
+        if (score >= 90) return 'health-excellent';
+        if (score >= 75) return 'health-good';
+        if (score >= 50) return 'health-fair';
+        return 'health-critical';
+    }
+
+    _formatSpan(ms) {
+        const totalMin = Math.floor(ms / 60000);
+        const days = Math.floor(totalMin / 1440);
+        const hours = Math.floor((totalMin % 1440) / 60);
+        const mins = totalMin % 60;
+        const parts = [];
+        if (days) parts.push(days + 'd');
+        if (hours) parts.push(hours + 'h');
+        if (mins || !parts.length) parts.push(mins + 'm');
+        return parts.join(' ');
+    }
+
+    _formatNumber(n) {
+        if (n == null || isNaN(n)) return '0';
+        if (n >= 1000) return n.toLocaleString();
+        return String(n);
+    }
+
+    _formatMs(ms) {
+        if (ms == null || !isFinite(ms)) return '—';
+        if (ms < 1) return ms.toFixed(2);
+        if (ms < 100) return ms.toFixed(1);
+        return Math.round(ms).toString();
+    }
+
+    _renderMetaStrip(firstDate, lastDate, spanMs, total, health, healthLabel) {
+        const fmt = (d) => d.toISOString().slice(0, 16).replace('T', ' ');
+        let html = '<div class="report-meta">';
+        html += '<div class="report-meta__cell"><span class="report-meta__label">Range</span>';
+        html += '<span class="report-meta__value">' + fmt(firstDate) + ' &middot; ' + fmt(lastDate) + '</span></div>';
+        html += '<div class="report-meta__cell"><span class="report-meta__label">Span</span>';
+        html += '<span class="report-meta__value">' + this._formatSpan(spanMs) + '</span></div>';
+        html += '<div class="report-meta__cell"><span class="report-meta__label">Entries</span>';
+        html += '<span class="report-meta__value">' + this._formatNumber(total) + '</span></div>';
+        html += '<div class="report-meta__cell"><span class="report-meta__label">Files</span>';
+        html += '<span class="report-meta__value">' + (this.loadedFiles || 0) + '</span></div>';
+        html += '<div class="report-meta__cell report-meta__cell--end">';
+        html += '<span class="report-meta__label">Health</span>';
+        html += '<span class="report-meta__value health-pill ' + this._healthClass(health) + '">';
+        html += health + ' <em>' + healthLabel + '</em></span></div>';
+        html += '</div>';
+        return html;
+    }
+
+    _renderLogDistribution(levelCounts, total, spanHours) {
+        const order = ['error', 'warning', 'information', 'debug'];
+        let html = '<section class="report-section">';
+        html += '<h3 class="report-title">Logs</h3>';
+        html += '<table class="report-table report-table--minimal">';
+        html += '<thead><tr><th>Level</th><th class="numeric">Count</th><th class="numeric">Share</th><th class="numeric">/ hour</th><th>Distribution</th></tr></thead>';
+        html += '<tbody>';
+        for (const level of order) {
+            const count = levelCounts[level] || 0;
+            if (count === 0 && total > 0) continue;
+            const pct = total > 0 ? (count / total) * 100 : 0;
+            const perHour = spanHours > 0 ? count / spanHours : 0;
+            html += '<tr class="level-row level-' + level + '">';
+            html += '<td><span class="level-badge ' + level + '">' + level.toUpperCase() + '</span></td>';
+            html += '<td class="numeric">' + this._formatNumber(count) + '</td>';
+            html += '<td class="numeric">' + pct.toFixed(1) + '%</td>';
+            html += '<td class="numeric">' + perHour.toFixed(1) + '</td>';
+            html += '<td class="visual-bar"><div class="distribution-bar-full"><div class="distribution-bar-fill" style="width:' + pct.toFixed(1) + '%"></div></div></td>';
+            html += '</tr>';
+        }
+        html += '</tbody></table>';
+        html += '</section>';
+        return html;
+    }
+
+    _renderApiPerformance(spanMinutes) {
+        // Filter out endpoints with no completed responses (count: 0)
+        const allEntries = Array.from(this.apiCalls.entries());
+        const validEntries = allEntries.filter(([, s]) => s.count > 0);
+        const incompleteCount = allEntries.length - validEntries.length;
+
+        if (validEntries.length === 0) return '';
+
+        let totalCalls = 0;
+        let totalTime = 0;
+        let apiErrorCount = 0;
+        let slowest = null;
+        let fastest = null;
+        let highestErrorRate = null;
+        const endpoints = [];
+
+        for (const [path, stats] of validEntries) {
+            const avgTime = stats.totalTime / stats.count;
+            const errorRate = (stats.errors / stats.count) * 100;
+            totalCalls += stats.count;
+            totalTime += stats.totalTime;
+            apiErrorCount += stats.errors;
+            if (!slowest || avgTime > slowest.avgTime) slowest = { path, avgTime };
+            if (!fastest || avgTime < fastest.avgTime) fastest = { path, avgTime };
+            if (!highestErrorRate || errorRate > highestErrorRate.rate) highestErrorRate = { path, rate: errorRate };
+            endpoints.push({ path, stats, avgTime, errorRate });
+        }
+
+        const avgResponse = totalTime / totalCalls;
+        const successRate = ((totalCalls - apiErrorCount) / totalCalls) * 100;
+        const throughputPerMin = spanMinutes > 0 ? totalCalls / spanMinutes : 0;
+        const apiHealth = Math.max(0, Math.min(100, Math.round(100 - (apiErrorCount / totalCalls) * 200)));
+        const apiHealthLabel = this._healthLabel(apiHealth);
+
+        const fastCount = endpoints.filter(e => e.avgTime < 100).length;
+        const mediumCount = endpoints.filter(e => e.avgTime >= 100 && e.avgTime < 500).length;
+        const slowCount = endpoints.filter(e => e.avgTime >= 500 && e.avgTime < 2000).length;
+        const verySlowCount = endpoints.filter(e => e.avgTime >= 2000).length;
+
+        const sortedEndpoints = this.getSortedApiEndpoints(endpoints);
+
+        let html = '<section class="report-section">';
+        html += '<div class="report-section__head">';
+        html += '<h3 class="report-title">API performance</h3>';
+        html += '<span class="health-pill ' + this._healthClass(apiHealth) + '">' + apiHealth + ' <em>' + apiHealthLabel + '</em></span>';
+        html += '</div>';
+
+        // Metrics strip
+        html += '<div class="metric-strip">';
+        html += this._metricCell('Total calls', this._formatNumber(totalCalls));
+        html += this._metricCell('Success', successRate.toFixed(1) + '%');
+        html += this._metricCell('Avg response', this._formatMs(avgResponse) + ' ms');
+        html += this._metricCell('Throughput', throughputPerMin.toFixed(1) + ' /min');
+        html += this._metricCell('Endpoints', this._formatNumber(endpoints.length));
+        html += '</div>';
+
+        // Inline distribution chip row
+        html += '<dl class="inline-buckets">';
+        html += '<div class="inline-buckets__row"><dt>Fast <span class="muted">&lt;100ms</span></dt><dd>' + fastCount + '</dd></div>';
+        html += '<div class="inline-buckets__row"><dt>Medium <span class="muted">100–500ms</span></dt><dd>' + mediumCount + '</dd></div>';
+        html += '<div class="inline-buckets__row"><dt>Slow <span class="muted">500–2000ms</span></dt><dd>' + slowCount + '</dd></div>';
+        html += '<div class="inline-buckets__row"><dt>Very slow <span class="muted">&gt;2000ms</span></dt><dd>' + verySlowCount + '</dd></div>';
+        html += '</dl>';
+
+        // Insights
+        html += '<dl class="report-insights">';
+        if (fastest) html += this._insightRow('Fastest', this.escape(fastest.path), this._formatMs(fastest.avgTime) + ' ms');
+        if (slowest) html += this._insightRow('Slowest', this.escape(slowest.path), this._formatMs(slowest.avgTime) + ' ms');
+        if (highestErrorRate && highestErrorRate.rate > 0) {
+            html += this._insightRow('Highest error rate', this.escape(highestErrorRate.path), highestErrorRate.rate.toFixed(1) + '%');
+        }
+        html += '</dl>';
+
+        // Endpoint table
+        const sortInd = (col) => this.apiTableSortColumn === col ? (this.apiTableSortDirection === 'asc' ? ' ↑' : ' ↓') : '';
+        const sortCls = (col) => this.apiTableSortColumn === col ? ' sortable-col active' : ' sortable-col';
+
+        html += '<table class="report-table api-performance-table">';
+        html += '<thead><tr>';
+        html += '<th>Endpoint</th>';
+        html += '<th class="numeric' + sortCls('calls') + '" data-sort-column="calls">Calls' + sortInd('calls') + '</th>';
+        html += '<th class="numeric' + sortCls('avgTime') + '" data-sort-column="avgTime">Avg' + sortInd('avgTime') + '</th>';
+        html += '<th class="numeric' + sortCls('minTime') + '" data-sort-column="minTime">Min' + sortInd('minTime') + '</th>';
+        html += '<th class="numeric' + sortCls('maxTime') + '" data-sort-column="maxTime">Max' + sortInd('maxTime') + '</th>';
+        html += '<th class="numeric">Success</th>';
+        html += '<th>Status</th>';
+        html += '</tr></thead><tbody>';
+
+        for (const e of sortedEndpoints) {
+            const { path, stats, avgTime, errorRate } = e;
+            const statusClass = errorRate > 10 ? 'api-status-poor' : errorRate > 0 ? 'api-status-fair' : 'api-status-good';
+            const successCallRate = ((stats.count - stats.errors) / stats.count) * 100;
+            const statusCodeStr = stats.statusCodes && stats.statusCodes.size > 0
+                ? Array.from(stats.statusCodes.entries())
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 3)
+                    .map(([code, count]) => code + ':' + count)
+                    .join(' ')
+                : '—';
+
+            html += '<tr class="api-row ' + statusClass + '">';
+            html += '<td class="report-code">' + this.escape(path) + '</td>';
+            html += '<td class="numeric">' + this._formatNumber(stats.count) + '</td>';
+            html += '<td class="numeric">' + this._formatMs(avgTime) + '</td>';
+            html += '<td class="numeric">' + this._formatMs(stats.minTime === Infinity ? 0 : stats.minTime) + '</td>';
+            html += '<td class="numeric">' + this._formatMs(stats.maxTime) + '</td>';
+            html += '<td class="numeric">' + successCallRate.toFixed(1) + '%</td>';
+            html += '<td class="status-codes">' + statusCodeStr + '</td>';
+            html += '</tr>';
+        }
+
+        html += '</tbody></table>';
+        if (incompleteCount > 0) {
+            html += '<p class="report-footnote">' + incompleteCount + ' endpoint' + (incompleteCount === 1 ? '' : 's') + ' had a request but no matching response and were excluded.</p>';
+        }
+        html += '</section>';
+        return html;
+    }
+
+    _renderInternalHttp(spanMinutes) {
+        const allEntries = Array.from(this.innerApiCalls.entries());
+        const validEntries = allEntries.filter(([, s]) => s.count > 0);
+        if (validEntries.length === 0) return '';
+
+        let totalCalls = 0;
+        let totalTime = 0;
+        let errors = 0;
+        let slowest = null;
+        let fastest = null;
+        const endpoints = [];
+
+        for (const [path, stats] of validEntries) {
+            const avgTime = stats.totalTime / stats.count;
+            const errorRate = (stats.errors / stats.count) * 100;
+            totalCalls += stats.count;
+            totalTime += stats.totalTime;
+            errors += stats.errors;
+            if (!slowest || avgTime > slowest.avgTime) slowest = { path, avgTime };
+            if (!fastest || avgTime < fastest.avgTime) fastest = { path, avgTime };
+            endpoints.push({ path, stats, avgTime, errorRate });
+        }
+
+        const avgResponse = totalTime / totalCalls;
+        const successRate = ((totalCalls - errors) / totalCalls) * 100;
+        const throughputPerMin = spanMinutes > 0 ? totalCalls / spanMinutes : 0;
+        const health = Math.max(0, Math.min(100, Math.round(100 - (errors / totalCalls) * 200)));
+        const healthLabel = this._healthLabel(health);
+
+        endpoints.sort((a, b) => b.avgTime - a.avgTime);
+
+        let html = '<section class="report-section">';
+        html += '<div class="report-section__head">';
+        html += '<h3 class="report-title">Internal HTTP</h3>';
+        html += '<span class="health-pill ' + this._healthClass(health) + '">' + health + ' <em>' + healthLabel + '</em></span>';
+        html += '</div>';
+        html += '<p class="report-description">Outbound HTTP calls made within request handling.</p>';
+
+        html += '<div class="metric-strip">';
+        html += this._metricCell('Total calls', this._formatNumber(totalCalls));
+        html += this._metricCell('Success', successRate.toFixed(1) + '%');
+        html += this._metricCell('Avg response', this._formatMs(avgResponse) + ' ms');
+        html += this._metricCell('Throughput', throughputPerMin.toFixed(1) + ' /min');
+        html += this._metricCell('Endpoints', this._formatNumber(endpoints.length));
+        html += '</div>';
+
+        html += '<dl class="report-insights">';
+        if (fastest) html += this._insightRow('Fastest', this.escape(fastest.path), this._formatMs(fastest.avgTime) + ' ms');
+        if (slowest) html += this._insightRow('Slowest', this.escape(slowest.path), this._formatMs(slowest.avgTime) + ' ms');
+        html += '</dl>';
+
+        html += '<table class="report-table internal-http-table">';
+        html += '<thead><tr>';
+        html += '<th>Method &amp; path</th>';
+        html += '<th class="numeric">Calls</th>';
+        html += '<th class="numeric">Avg</th>';
+        html += '<th class="numeric">Min</th>';
+        html += '<th class="numeric">Max</th>';
+        html += '<th class="numeric">Success</th>';
+        html += '<th>Status</th>';
+        html += '</tr></thead><tbody>';
+
+        for (const e of endpoints) {
+            const { path, stats, avgTime } = e;
+            const minTime = stats.minTime === Infinity ? 0 : stats.minTime;
+            const successCallRate = ((stats.count - stats.errors) / stats.count) * 100;
+            const statusCodeStr = stats.statusCodes && stats.statusCodes.size > 0
+                ? Array.from(stats.statusCodes.entries())
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 2)
+                    .map(([code, count]) => code + ':' + count)
+                    .join(' ')
+                : '—';
+
+            html += '<tr class="internal-http-row">';
+            html += '<td class="report-code">' + this.escape(path) + '</td>';
+            html += '<td class="numeric">' + this._formatNumber(stats.count) + '</td>';
+            html += '<td class="numeric">' + this._formatMs(avgTime) + '</td>';
+            html += '<td class="numeric">' + this._formatMs(minTime) + '</td>';
+            html += '<td class="numeric">' + this._formatMs(stats.maxTime) + '</td>';
+            html += '<td class="numeric">' + successCallRate.toFixed(1) + '%</td>';
+            html += '<td class="status-codes">' + statusCodeStr + '</td>';
+            html += '</tr>';
+        }
+
+        html += '</tbody></table>';
+        html += '</section>';
+        return html;
+    }
+
+    _renderExceptions() {
+        let totalExceptions = 0;
+        for (const [, stats] of this.exceptionResponses.byType) totalExceptions += stats.count;
+        if (totalExceptions === 0) return '';
+
+        let html = '<section class="report-section">';
+        html += '<h3 class="report-title">Exceptions</h3>';
+
+        html += '<div class="metric-strip">';
+        html += this._metricCell('Total', this._formatNumber(totalExceptions));
+        html += this._metricCell('Types', this._formatNumber(this.exceptionResponses.byType.size));
+        html += this._metricCell('Reasons', this._formatNumber(this.exceptionResponses.byReason.size));
+        html += '</div>';
+
+        html += '<div class="exception-tabs">';
+        html += '<button class="exception-tab-btn active" data-tab="by-type">By type</button>';
+        html += '<button class="exception-tab-btn" data-tab="by-reason">By reason</button>';
+        html += '</div>';
+
+        // By type
+        const typeEntries = Array.from(this.exceptionResponses.byType.entries())
+            .sort((a, b) => b[1].count - a[1].count);
+        let typeHtml = '<table class="report-table exception-table">';
+        typeHtml += '<thead><tr><th>Type</th><th class="numeric">Count</th><th class="numeric">Share</th><th>Top reason</th><th class="numeric">Reason count</th></tr></thead><tbody>';
+        for (const [type, stats] of typeEntries) {
+            let topReason = '—';
+            let topReasonCount = 0;
+            for (const [reason, count] of stats.reasons) {
+                if (count > topReasonCount) { topReasonCount = count; topReason = reason; }
+            }
+            const pct = (stats.count / totalExceptions) * 100;
+            typeHtml += '<tr class="exception-row">';
+            typeHtml += '<td class="report-code exception-type-name">' + this.escape(type) + '</td>';
+            typeHtml += '<td class="numeric">' + this._formatNumber(stats.count) + '</td>';
+            typeHtml += '<td class="numeric"><div class="percentage-container">' + pct.toFixed(1) + '%<div class="exception-percentage-bar" style="width:' + pct.toFixed(1) + '%"></div></div></td>';
+            typeHtml += '<td class="exception-reason">' + this.escape(topReason) + '</td>';
+            typeHtml += '<td class="numeric">' + this._formatNumber(topReasonCount) + '</td>';
+            typeHtml += '</tr>';
+        }
+        typeHtml += '</tbody></table>';
+
+        // By reason
+        const reasonEntries = Array.from(this.exceptionResponses.byReason.entries())
+            .sort((a, b) => b[1].count - a[1].count);
+        let reasonHtml = '<table class="report-table exception-table">';
+        reasonHtml += '<thead><tr><th>Reason</th><th class="numeric">Count</th><th class="numeric">Share</th><th>Top type</th><th>Thrown by</th></tr></thead><tbody>';
+        for (const [reason, stats] of reasonEntries) {
+            let topType = '—';
+            let topTypeCount = 0;
+            for (const [type, count] of stats.types) {
+                if (count > topTypeCount) { topTypeCount = count; topType = type; }
+            }
+            let topApi = '—';
+            let topApiCount = 0;
+            for (const [api, count] of stats.apis) {
+                if (count > topApiCount) { topApiCount = count; topApi = api; }
+            }
+            const pct = (stats.count / totalExceptions) * 100;
+            reasonHtml += '<tr class="exception-row">';
+            reasonHtml += '<td class="report-code exception-reason-name">' + this.escape(reason) + '</td>';
+            reasonHtml += '<td class="numeric">' + this._formatNumber(stats.count) + '</td>';
+            reasonHtml += '<td class="numeric"><div class="percentage-container">' + pct.toFixed(1) + '%<div class="exception-percentage-bar" style="width:' + pct.toFixed(1) + '%"></div></div></td>';
+            reasonHtml += '<td class="exception-type">' + this.escape(topType) + '</td>';
+            reasonHtml += '<td class="report-code exception-api">' + this.escape(topApi) + '</td>';
+            reasonHtml += '</tr>';
+        }
+        reasonHtml += '</tbody></table>';
+
+        html += '<div id="exceptionByType" class="exception-tab-content active">' + typeHtml + '</div>';
+        html += '<div id="exceptionByReason" class="exception-tab-content hidden">' + reasonHtml + '</div>';
+        html += '</section>';
+        return html;
+    }
+
+    _renderActivity(hourCounts, threadCounts, total) {
+        const peakHour = hourCounts.indexOf(Math.max(...hourCounts));
+        const peakValue = hourCounts[peakHour];
+        const max = Math.max(1, ...hourCounts);
+
+        let html = '<section class="report-section">';
+        html += '<h3 class="report-title">Activity</h3>';
+
+        // Hourly bars
+        html += '<p class="report-description">Hourly distribution &middot; peak ' +
+            String(peakHour).padStart(2, '0') + ':00 (' + this._formatNumber(peakValue) + ' entries)</p>';
+        html += '<div class="hourly-timeline">';
+        for (let h = 0; h < 24; h++) {
+            const count = hourCounts[h];
+            const heightPct = (count / max) * 100;
+            html += '<div class="timeline-bar-container" title="' + String(h).padStart(2, '0') + ':00 — ' + count + ' entries">';
+            html += '<div class="timeline-bar" style="height:' + heightPct.toFixed(1) + '%"></div>';
+            html += '<div class="timeline-label">' + String(h).padStart(2, '0') + '</div>';
+            html += '</div>';
+        }
+        html += '</div>';
+
+        // Top threads
+        const topThreads = Object.entries(threadCounts)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10);
+
+        if (topThreads.length > 0) {
+            html += '<h4 class="subsection-title">Top threads / correlation IDs</h4>';
+            html += '<table class="report-table report-table--minimal">';
+            html += '<thead><tr><th>Thread / Correlation</th><th class="numeric">Count</th><th class="numeric">Share</th><th>Distribution</th></tr></thead><tbody>';
+            const topMax = topThreads[0][1];
+            for (const [thread, count] of topThreads) {
+                const pct = (count / total) * 100;
+                const relPct = (count / topMax) * 100;
+                html += '<tr>';
+                html += '<td class="report-code">' + this.escape(thread) + '</td>';
+                html += '<td class="numeric">' + this._formatNumber(count) + '</td>';
+                html += '<td class="numeric">' + pct.toFixed(1) + '%</td>';
+                html += '<td class="visual-bar"><div class="distribution-bar-full"><div class="distribution-bar-fill" style="width:' + relPct.toFixed(1) + '%;background:var(--accent)"></div></div></td>';
+                html += '</tr>';
+            }
+            html += '</tbody></table>';
+        }
+
+        html += '</section>';
+        return html;
+    }
+
+    _metricCell(label, value) {
+        return '<div class="metric-strip__cell">' +
+            '<span class="metric-strip__label">' + label + '</span>' +
+            '<span class="metric-strip__value">' + value + '</span></div>';
+    }
+
+    _insightRow(label, target, value) {
+        return '<div class="report-insights__row">' +
+            '<dt>' + label + '</dt>' +
+            '<dd><span class="insight-target">' + target + '</span><span class="insight-metric">' + value + '</span></dd>' +
+            '</div>';
     }
 
     parseExceptionResponses() {
