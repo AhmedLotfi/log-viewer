@@ -1206,30 +1206,96 @@ body.theme-blue .loader-overlay { background: rgba(8, 22, 37, 0.78); }
 .exception-tab-content { animation: fadeIn 0.25s ease; }
 .exception-tab-content.hidden { display: none; }
 
+/* ---------- Exception tables ---------- */
 .exception-table { margin-top: 14px; }
-.exception-row td:first-child { border-left: 2px solid var(--danger); padding-left: 12px; }
-.exception-row:hover { background: var(--surface-hover); }
-.exception-row td.numeric {
-    font-weight: 500;
-    font-family: var(--font-mono);
-    font-feature-settings: "tnum";
+.exception-row td:first-child {
+    border-left: 2px solid var(--danger);
+    padding-left: 12px;
 }
-.exception-type-name, .exception-reason-name {
+.exception-row:hover { background: var(--surface-hover); }
+
+/* Primary identifier (Type / Reason) */
+.exception-table .exception-type-name,
+.exception-table .exception-reason-name {
     font-weight: 500;
     color: var(--ink);
+    max-width: 280px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
-.exception-reason, .exception-type {
+/* Sort headers reuse the existing .sortable-col styling */
+.exception-table th[data-exc-sort] {
+    cursor: pointer;
+    transition: color var(--transition), background var(--transition);
+}
+.exception-table th[data-exc-sort]:hover { color: var(--accent); background: var(--accent-soft); }
+.exception-table th[data-exc-sort].active { color: var(--accent); background: var(--accent-soft); }
+
+/* Count column — keep numeric column compact */
+.exception-table .exc-count {
+    font-weight: 600;
+    color: var(--ink);
+    width: 70px;
+}
+
+/* Share column with proportional fill bar */
+.exception-table th.col-share { width: 140px; min-width: 120px; }
+.exception-table td.col-share { width: 140px; min-width: 120px; padding: 8px 14px; }
+.share-bar {
+    position: relative;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    border-radius: var(--radius-xs);
+    background: var(--bg-soft);
+    overflow: hidden;
+}
+.share-bar__fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    background: var(--accent-soft-strong);
+    border-right: 1px solid var(--accent);
+    transition: width 0.4s ease;
+}
+.share-bar__label {
+    position: relative;
+    z-index: 1;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--ink);
+    padding-left: 8px;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Secondary / Thrown by columns — truncate long content with full text in title */
+.exception-table .col-secondary,
+.exception-table .col-thrown {
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: 12px;
+}
+.exception-table .col-secondary {
     color: var(--text-muted);
-    word-break: break-word;
     font-family: var(--font-mono);
 }
-.percentage-container { display: flex; align-items: center; gap: 8px; min-width: 80px; }
-.exception-percentage-bar {
-    height: 3px;
-    background: var(--danger);
-    border-radius: 2px;
-    min-width: 30px;
+.exception-table .col-thrown {
+    color: var(--ink);
+    font-family: var(--font-mono);
+}
+
+@media (max-width: 900px) {
+    .exception-table .col-secondary,
+    .exception-table .col-thrown { max-width: 160px; }
+    .exception-table .exception-type-name,
+    .exception-table .exception-reason-name { max-width: 200px; }
+    .exception-table th.col-share,
+    .exception-table td.col-share { width: 110px; min-width: 90px; }
 }
 
 /* ---------- Responsive ---------- */

@@ -18,6 +18,9 @@ class LogViewer {
         this.apiTableSortColumn = 'avgTime'; // Default sort column
         this.apiTableSortDirection = 'desc'; // 'asc' or 'desc'
         this.hourFilter = null; // 0..23 to filter to a single hour-of-day bucket
+        // Sort state for exception tables (shared across by-type / by-reason tabs).
+        this.exceptionSortColumn = 'count'; // 'name' | 'count'
+        this.exceptionSortDirection = 'desc'; // 'asc' | 'desc'
         this.STORAGE_KEY_THEME = 'logViewer.theme';
         this.init();
         this.restoreTheme();
@@ -1442,6 +1445,12 @@ class LogViewer {
                 this.toggleExceptionDetail(expandBtn);
                 return;
             }
+            // Exception table sort headers.
+            const excSort = e.target.closest('[data-exc-sort]');
+            if (excSort) {
+                this.handleExceptionSort(excSort.dataset.excSort);
+                return;
+            }
             // Hourly bar → filter by hour-of-day.
             const hourBar = e.target.closest('[data-hour]');
             if (hourBar) {
@@ -1453,13 +1462,19 @@ class LogViewer {
             if (!row) return;
             this.filterByText(row.dataset.filter);
         });
-        // Keyboard: Enter/Space on focused hour bar triggers the filter.
+        // Keyboard: Enter/Space on focused hour bar or exception sort header.
         reportsContent.addEventListener('keydown', (e) => {
             if (e.key !== 'Enter' && e.key !== ' ') return;
             const hourBar = e.target.closest('[data-hour]');
             if (hourBar) {
                 e.preventDefault();
                 this.filterByHour(parseInt(hourBar.dataset.hour, 10));
+                return;
+            }
+            const excSort = e.target.closest('[data-exc-sort]');
+            if (excSort) {
+                e.preventDefault();
+                this.handleExceptionSort(excSort.dataset.excSort);
             }
         });
     }
@@ -1865,69 +1880,124 @@ class LogViewer {
         html += '<button class="exception-tab-btn" data-tab="by-reason">By reason</button>';
         html += '</div>';
 
-        // By type
-        const typeEntries = Array.from(this.exceptionResponses.byType.entries())
-            .sort((a, b) => b[1].count - a[1].count);
-        let typeHtml = '<table class="report-table exception-table">';
-        typeHtml += '<thead><tr><th class="col-expand"></th><th>Type</th><th class="numeric">Count</th><th class="numeric">Share</th><th>Top reason</th><th>Thrown by</th></tr></thead><tbody>';
-        for (const [type, stats] of typeEntries) {
-            let topReason = '—';
-            let topReasonCount = 0;
-            for (const [reason, count] of stats.reasons) {
-                if (count > topReasonCount) { topReasonCount = count; topReason = reason; }
-            }
-            let topApi = '—';
-            let topApiCount = 0;
-            for (const [api, count] of stats.apis) {
-                if (count > topApiCount) { topApiCount = count; topApi = api; }
-            }
-            const pct = (stats.count / totalExceptions) * 100;
-            const filterable = type !== 'Unknown';
-            typeHtml += '<tr class="exception-row' + (filterable ? ' report-row-link' : '') + '"'
-                + (filterable ? ' data-filter="' + this.escape(type) + '" title="Click to filter logs by this exception type"' : '')
-                + ' data-detail-key="type:' + this.escape(type) + '">';
-            typeHtml += '<td class="col-expand"><button type="button" class="row-expand" aria-label="Toggle details">▸</button></td>';
-            typeHtml += '<td class="report-code exception-type-name">' + this.escape(type) + '</td>';
-            typeHtml += '<td class="numeric">' + this._formatNumber(stats.count) + '</td>';
-            typeHtml += '<td class="numeric"><div class="percentage-container">' + pct.toFixed(1) + '%<div class="exception-percentage-bar" style="width:' + pct.toFixed(1) + '%"></div></div></td>';
-            typeHtml += '<td class="exception-reason">' + this.escape(topReason) + (topReasonCount > 1 ? ' <span class="muted-count">×' + topReasonCount + '</span>' : '') + '</td>';
-            typeHtml += '<td class="report-code exception-api">' + this.escape(topApi) + '</td>';
-            typeHtml += '</tr>';
-        }
-        typeHtml += '</tbody></table>';
+        const typeHtml = this._renderExceptionTable({
+            kind: 'type',
+            entries: Array.from(this.exceptionResponses.byType.entries()),
+            primaryLabel: 'Type',
+            secondaryLabel: 'Top reason',
+            totalExceptions,
+            secondaryFor: (stats) => this._topEntry(stats.reasons),
+            primaryClass: 'exception-type-name',
+            secondaryClass: 'exception-reason'
+        });
 
-        // By reason
-        const reasonEntries = Array.from(this.exceptionResponses.byReason.entries())
-            .sort((a, b) => b[1].count - a[1].count);
-        let reasonHtml = '<table class="report-table exception-table">';
-        reasonHtml += '<thead><tr><th class="col-expand"></th><th>Reason</th><th class="numeric">Count</th><th class="numeric">Share</th><th>Top type</th><th>Thrown by</th></tr></thead><tbody>';
-        for (const [reason, stats] of reasonEntries) {
-            let topType = '—';
-            let topTypeCount = 0;
-            for (const [type, count] of stats.types) {
-                if (count > topTypeCount) { topTypeCount = count; topType = type; }
-            }
-            let topApi = '—';
-            let topApiCount = 0;
-            for (const [api, count] of stats.apis) {
-                if (count > topApiCount) { topApiCount = count; topApi = api; }
-            }
-            const pct = (stats.count / totalExceptions) * 100;
-            reasonHtml += '<tr class="exception-row" data-detail-key="reason:' + this.escape(reason) + '">';
-            reasonHtml += '<td class="col-expand"><button type="button" class="row-expand" aria-label="Toggle details">▸</button></td>';
-            reasonHtml += '<td class="report-code exception-reason-name">' + this.escape(reason) + '</td>';
-            reasonHtml += '<td class="numeric">' + this._formatNumber(stats.count) + '</td>';
-            reasonHtml += '<td class="numeric"><div class="percentage-container">' + pct.toFixed(1) + '%<div class="exception-percentage-bar" style="width:' + pct.toFixed(1) + '%"></div></div></td>';
-            reasonHtml += '<td class="exception-type">' + this.escape(topType) + '</td>';
-            reasonHtml += '<td class="report-code exception-api">' + this.escape(topApi) + '</td>';
-            reasonHtml += '</tr>';
-        }
-        reasonHtml += '</tbody></table>';
+        const reasonHtml = this._renderExceptionTable({
+            kind: 'reason',
+            entries: Array.from(this.exceptionResponses.byReason.entries()),
+            primaryLabel: 'Reason',
+            secondaryLabel: 'Top type',
+            totalExceptions,
+            secondaryFor: (stats) => this._topEntry(stats.types),
+            primaryClass: 'exception-reason-name',
+            secondaryClass: 'exception-type'
+        });
 
-        html += '<div id="exceptionByType" class="exception-tab-content active">' + typeHtml + '</div>';
+        html += '<div id="exceptionByType" class="exception-tab-content">' + typeHtml + '</div>';
         html += '<div id="exceptionByReason" class="exception-tab-content hidden">' + reasonHtml + '</div>';
         html += '</section>';
         return html;
+    }
+
+    /** Returns [name, count] of the most-common entry in a Map. */
+    _topEntry(map) {
+        let topName = null;
+        let topCount = 0;
+        if (map) {
+            for (const [name, count] of map) {
+                if (count > topCount) { topCount = count; topName = name; }
+            }
+        }
+        return [topName, topCount];
+    }
+
+    /**
+     * Render either by-type or by-reason exception table. Handles sorting,
+     * the shared share-bar layout, and truncation of secondary cells.
+     */
+    _renderExceptionTable(opts) {
+        const {
+            kind, entries, primaryLabel, secondaryLabel,
+            totalExceptions, secondaryFor, primaryClass, secondaryClass
+        } = opts;
+
+        // Sort by current state.
+        const dir = this.exceptionSortDirection === 'asc' ? 1 : -1;
+        const sorted = entries.slice().sort((a, b) => {
+            if (this.exceptionSortColumn === 'name') {
+                return a[0].localeCompare(b[0]) * dir;
+            }
+            // 'count' (default) — share sorts identically to count.
+            return (a[1].count - b[1].count) * dir;
+        });
+
+        const sortInd = (col) => this.exceptionSortColumn === col
+            ? (this.exceptionSortDirection === 'asc' ? ' ↑' : ' ↓') : '';
+        const sortCls = (col, base) => this.exceptionSortColumn === col
+            ? (base + ' sortable-col active')
+            : (base + ' sortable-col');
+        const ariaSort = (col) => this.exceptionSortColumn === col
+            ? (this.exceptionSortDirection === 'asc' ? 'ascending' : 'descending')
+            : 'none';
+
+        let html = '<table class="report-table exception-table">';
+        html += '<thead><tr>';
+        html += '<th class="col-expand" aria-hidden="true"></th>';
+        html += '<th data-exc-sort="name" class="' + sortCls('name', '') + '" aria-sort="' + ariaSort('name') + '" tabindex="0" role="button">' + primaryLabel + sortInd('name') + '</th>';
+        html += '<th data-exc-sort="count" class="' + sortCls('count', 'numeric') + '" aria-sort="' + ariaSort('count') + '" tabindex="0" role="button">Count' + sortInd('count') + '</th>';
+        html += '<th class="col-share">Share</th>';
+        html += '<th class="col-secondary">' + secondaryLabel + '</th>';
+        html += '<th class="col-thrown">Thrown by</th>';
+        html += '</tr></thead><tbody>';
+
+        for (const [name, stats] of sorted) {
+            const [secondaryName, secondaryCount] = secondaryFor(stats);
+            const [topApi] = this._topEntry(stats.apis);
+            const pct = totalExceptions > 0 ? (stats.count / totalExceptions) * 100 : 0;
+            const filterable = (kind === 'type') && name !== 'Unknown';
+
+            html += '<tr class="exception-row' + (filterable ? ' report-row-link' : '') + '"'
+                + (filterable ? ' data-filter="' + this.escape(name) + '" title="Click to filter logs by this exception type"' : '')
+                + ' data-detail-key="' + kind + ':' + this.escape(name) + '">';
+            html += '<td class="col-expand"><button type="button" class="row-expand" aria-label="Toggle details">▸</button></td>';
+            html += '<td class="report-code ' + primaryClass + '" title="' + this.escape(name) + '">' + this.escape(name) + '</td>';
+            html += '<td class="numeric exc-count">' + this._formatNumber(stats.count) + '</td>';
+            html += '<td class="col-share"><div class="share-bar"><div class="share-bar__fill" style="width:' + pct.toFixed(1) + '%"></div><span class="share-bar__label">' + pct.toFixed(1) + '%</span></div></td>';
+            html += '<td class="col-secondary ' + secondaryClass + '" title="' + this.escape(secondaryName || '—') + '">'
+                + this.escape(secondaryName || '—')
+                + (secondaryCount > 1 ? ' <span class="muted-count">×' + secondaryCount + '</span>' : '')
+                + '</td>';
+            html += '<td class="col-thrown report-code" title="' + this.escape(topApi || '—') + '">' + this.escape(topApi || '—') + '</td>';
+            html += '</tr>';
+        }
+
+        html += '</tbody></table>';
+        return html;
+    }
+
+    /** Toggle sort direction on the shared exception sort state and re-render. */
+    handleExceptionSort(column) {
+        if (column !== 'name' && column !== 'count') return;
+        if (this.exceptionSortColumn === column) {
+            this.exceptionSortDirection = this.exceptionSortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            this.exceptionSortColumn = column;
+            this.exceptionSortDirection = column === 'name' ? 'asc' : 'desc';
+        }
+        // Remember which tab is active so we can restore it after re-render.
+        const activeTab = document.querySelector('.exception-tab-btn.active');
+        const activeTabName = activeTab ? activeTab.dataset.tab : 'by-type';
+        this.generateReports();
+        this.switchExceptionTab(activeTabName);
     }
 
     _renderActivity(hourCounts, threadCounts, total) {
