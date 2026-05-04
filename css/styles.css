@@ -58,8 +58,8 @@
     --radius-lg: 6px;
     --radius-xl: 8px;
 
-    /* Type stack */
-    --font-display: 'Fraunces', 'Iowan Old Style', 'Apple Garamond', Garamond, Georgia, serif;
+    /* Type stack — single family for calm uniformity. Hierarchy via weight, not style. */
+    --font-display: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
     --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
     --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
 
@@ -197,31 +197,27 @@ body.theme-dark, body.theme-blue {
 
 .header h1 {
     font-family: var(--font-display);
-    font-optical-sizing: auto;
-    font-size: 26px;
-    font-weight: 500;
-    font-style: italic;
-    letter-spacing: -0.02em;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
     color: var(--ink);
     margin-bottom: 16px;
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 10px;
-    line-height: 1.1;
+    line-height: 1.2;
 }
 .header h1 span {
     display: inline-flex;
     align-items: baseline;
-    gap: 12px;
+    gap: 10px;
 }
 .header h1 span::before {
     content: '§';
-    font-family: var(--font-display);
-    font-style: normal;
     font-weight: 400;
     color: var(--accent);
-    font-size: 22px;
+    font-size: 18px;
     letter-spacing: 0;
 }
 
@@ -389,10 +385,10 @@ body.theme-dark, body.theme-blue {
 }
 .stat-value {
     font-family: var(--font-display);
-    font-size: 26px;
-    font-weight: 500;
+    font-size: 22px;
+    font-weight: 600;
     color: var(--ink);
-    letter-spacing: -0.02em;
+    letter-spacing: -0.015em;
     line-height: 1;
     font-feature-settings: "tnum", "lnum";
     transition: color var(--transition);
@@ -622,9 +618,8 @@ body.theme-dark, body.theme-blue {
 }
 .empty-state h2 {
     font-family: var(--font-display);
-    font-style: italic;
-    font-weight: 400;
-    font-size: 26px;
+    font-weight: 500;
+    font-size: 22px;
     letter-spacing: -0.01em;
     margin-bottom: 8px;
     color: var(--ink);
@@ -737,11 +732,10 @@ body.theme-blue .loader-overlay { background: rgba(8, 22, 37, 0.78); }
 .loader-text {
     margin-top: 18px;
     font-family: var(--font-display);
-    font-style: italic;
-    font-size: 18px;
-    font-weight: 400;
+    font-size: 15px;
+    font-weight: 500;
     color: var(--ink);
-    letter-spacing: -0.01em;
+    letter-spacing: -0.005em;
 }
 .loader-subtext {
     margin-top: 6px;
@@ -792,12 +786,11 @@ body.theme-blue .loader-overlay { background: rgba(8, 22, 37, 0.78); }
 }
 .modal-title {
     font-family: var(--font-display);
-    font-style: italic;
-    font-size: 28px;
-    font-weight: 500;
-    letter-spacing: -0.02em;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
     color: var(--ink);
-    line-height: 1.1;
+    line-height: 1.2;
 }
 .modal-close {
     width: 32px; height: 32px;
@@ -893,14 +886,14 @@ body.theme-blue .loader-overlay { background: rgba(8, 22, 37, 0.78); }
 }
 .report-title {
     font-family: var(--font-display);
-    font-style: italic;
-    font-size: 22px;
-    font-weight: 500;
+    font-size: 16px;
+    font-weight: 600;
     color: var(--ink);
     margin-bottom: 18px;
     padding-bottom: 14px;
     border-bottom: 1px solid var(--rule);
-    letter-spacing: -0.01em;
+    letter-spacing: -0.005em;
+    text-transform: none;
 }
 
 /* Base report table */

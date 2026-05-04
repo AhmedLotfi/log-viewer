@@ -125,6 +125,7 @@ class LogViewer {
             this.logs = [];
             this.apiCalls = new Map(); // Track API calls
             this.exceptions = new Map(); // Track exceptions
+            this.apiByCorrelation = new Map(); // correlationId/requestId -> normalized API path
             let current = null;
             let currentApiCall = null;
 
@@ -258,6 +259,10 @@ class LogViewer {
                                 correlationId,
                                 requestId
                             };
+                            // Index API path by correlation/request IDs so we can attribute
+                            // exceptions back to the API that handled the request.
+                            if (correlationId) this.apiByCorrelation.set(correlationId, normalizedPath);
+                            if (requestId) this.apiByCorrelation.set(requestId, normalizedPath);
                             console.log('Found API call start:', {
                                 path: normalizedPath,
                                 correlationId,
@@ -1312,20 +1317,25 @@ class LogViewer {
         const typeEntries = Array.from(this.exceptionResponses.byType.entries())
             .sort((a, b) => b[1].count - a[1].count);
         let typeHtml = '<table class="report-table exception-table">';
-        typeHtml += '<thead><tr><th>Type</th><th class="numeric">Count</th><th class="numeric">Share</th><th>Top reason</th><th class="numeric">Reason count</th></tr></thead><tbody>';
+        typeHtml += '<thead><tr><th>Type</th><th class="numeric">Count</th><th class="numeric">Share</th><th>Top reason</th><th>Thrown by</th></tr></thead><tbody>';
         for (const [type, stats] of typeEntries) {
             let topReason = '—';
             let topReasonCount = 0;
             for (const [reason, count] of stats.reasons) {
                 if (count > topReasonCount) { topReasonCount = count; topReason = reason; }
             }
+            let topApi = '—';
+            let topApiCount = 0;
+            for (const [api, count] of stats.apis) {
+                if (count > topApiCount) { topApiCount = count; topApi = api; }
+            }
             const pct = (stats.count / totalExceptions) * 100;
             typeHtml += '<tr class="exception-row">';
             typeHtml += '<td class="report-code exception-type-name">' + this.escape(type) + '</td>';
             typeHtml += '<td class="numeric">' + this._formatNumber(stats.count) + '</td>';
             typeHtml += '<td class="numeric"><div class="percentage-container">' + pct.toFixed(1) + '%<div class="exception-percentage-bar" style="width:' + pct.toFixed(1) + '%"></div></div></td>';
-            typeHtml += '<td class="exception-reason">' + this.escape(topReason) + '</td>';
-            typeHtml += '<td class="numeric">' + this._formatNumber(topReasonCount) + '</td>';
+            typeHtml += '<td class="exception-reason">' + this.escape(topReason) + (topReasonCount > 1 ? ' <span class="muted-count">×' + topReasonCount + '</span>' : '') + '</td>';
+            typeHtml += '<td class="report-code exception-api">' + this.escape(topApi) + '</td>';
             typeHtml += '</tr>';
         }
         typeHtml += '</tbody></table>';
@@ -1433,40 +1443,43 @@ class LogViewer {
 
         this.logs.forEach(log => {
             if (log.level === 'error' && log.exception) {
-                // Look for TYPE: and REASON: patterns in the exception
-                const typeMatch = log.exception.match(/TYPE:\s*(\w+)/i);
-                const reasonMatch = log.exception.match(/REASON:\s*([^\n]+)/i);
-                const httpMatch = log.exception.match(/HTTP:\s*(\w+)\s+([^\s\n]+)/i);
+                // TYPE: capture full token until whitespace, comma, or newline.
+                // (\w+ truncated qualified types like "System.NullReferenceException".)
+                const typeMatch = log.exception.match(/TYPE:\s*([^\s,\n\r]+)/i);
+                const reasonMatch = log.exception.match(/REASON:\s*([^\n\r]+)/i);
+                const httpMatch = log.exception.match(/HTTP:\s*(\w+)\s+([^\s\n\r]+)/i);
 
                 if (typeMatch || reasonMatch) {
-                    const type = typeMatch ? typeMatch[1] : 'Unknown';
+                    const type = typeMatch ? typeMatch[1].trim() : 'Unknown';
                     const rawReason = reasonMatch ? reasonMatch[1].trim() : 'Unknown';
                     const reason = this.normalizeExceptionMessage(rawReason);
-                    
-                    // Extract API path from HTTP: METHOD /path pattern in exception
-                    let apiPath = 'Unknown API';
+
+                    // Resolve API path: explicit HTTP: line first, then fall back to the
+                    // API that owned this correlation/request id (built during parse).
+                    let apiPath = 'Unknown';
                     if (httpMatch) {
-                        const method = httpMatch[1];
-                        const path = httpMatch[2];
-                        apiPath = method + ' ' + path;
-                    } else if (log.apiPath) {
-                        apiPath = log.apiPath;
+                        apiPath = httpMatch[1] + ' ' + httpMatch[2];
+                    } else if (log.correlationId && this.apiByCorrelation && this.apiByCorrelation.has(log.correlationId)) {
+                        apiPath = this.apiByCorrelation.get(log.correlationId);
+                    } else if (log.requestId && this.apiByCorrelation && this.apiByCorrelation.has(log.requestId)) {
+                        apiPath = this.apiByCorrelation.get(log.requestId);
                     }
 
                     // Group by TYPE
                     if (!this.exceptionResponses.byType.has(type)) {
                         this.exceptionResponses.byType.set(type, {
                             count: 0,
-                            reasons: new Map()
+                            reasons: new Map(),
+                            apis: new Map()
                         });
                     }
                     const typeStats = this.exceptionResponses.byType.get(type);
                     typeStats.count++;
 
                     if (reason !== 'Unknown') {
-                        const reasonCount = typeStats.reasons.get(reason) || 0;
-                        typeStats.reasons.set(reason, reasonCount + 1);
+                        typeStats.reasons.set(reason, (typeStats.reasons.get(reason) || 0) + 1);
                     }
+                    typeStats.apis.set(apiPath, (typeStats.apis.get(apiPath) || 0) + 1);
 
                     // Group by REASON
                     if (!this.exceptionResponses.byReason.has(reason)) {
@@ -1480,13 +1493,9 @@ class LogViewer {
                     reasonStats.count++;
 
                     if (type !== 'Unknown') {
-                        const typeCount = reasonStats.types.get(type) || 0;
-                        reasonStats.types.set(type, typeCount + 1);
+                        reasonStats.types.set(type, (reasonStats.types.get(type) || 0) + 1);
                     }
-
-                    // Track which API threw this reason
-                    const apiCount = reasonStats.apis.get(apiPath) || 0;
-                    reasonStats.apis.set(apiPath, apiCount + 1);
+                    reasonStats.apis.set(apiPath, (reasonStats.apis.get(apiPath) || 0) + 1);
                 }
             }
         });
