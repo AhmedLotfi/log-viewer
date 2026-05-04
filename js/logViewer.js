@@ -51,6 +51,7 @@ class LogViewer {
             searchTimer = setTimeout(() => this.search(value), 150);
         });
         document.getElementById('clearBtn').addEventListener('click', () => this.clear());
+        document.getElementById('resetBtn').addEventListener('click', () => this.resetFilters());
         document.getElementById('exportBtn').addEventListener('click', () => this.exportLogs());
         document.getElementById('clearDateBtn').addEventListener('click', () => this.clearDateFilter());
         document.getElementById('dateFrom').addEventListener('change', (e) => this.setDateFrom(e.target.value));
@@ -222,6 +223,12 @@ class LogViewer {
                 }
             }
 
+            // Tab focus trap inside open modals.
+            if (e.key === 'Tab' && isModalOpen()) {
+                this._trapFocusInModal(e);
+                return;
+            }
+
             // Don't intercept when user is typing or modal is open
             if (isTextField(document.activeElement) || isModalOpen()) return;
             if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -250,6 +257,33 @@ class LogViewer {
                 e.preventDefault();
             }
         });
+    }
+
+    /**
+     * Cycle focus inside whichever modal is currently open. Without this, Tab
+     * escapes back into the page and screen-reader users lose the modal.
+     */
+    _trapFocusInModal(e) {
+        const modal = document.querySelector('.modal.show');
+        if (!modal) return;
+        const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+        const nodes = Array.from(modal.querySelectorAll(FOCUSABLE))
+            .filter(el => el.offsetParent !== null); // visible only
+        if (nodes.length === 0) return;
+        const first = nodes[0];
+        const last = nodes[nodes.length - 1];
+        const active = document.activeElement;
+        if (e.shiftKey) {
+            if (active === first || !modal.contains(active)) {
+                last.focus();
+                e.preventDefault();
+            }
+        } else {
+            if (active === last || !modal.contains(active)) {
+                first.focus();
+                e.preventDefault();
+            }
+        }
     }
 
     setTheme(theme) {
@@ -651,6 +685,26 @@ class LogViewer {
         this.showToast('Date filters cleared');
     }
 
+    /**
+     * Reset all filtering state — search, level toggles, date range — back to
+     * defaults. Useful after drilling in via report cross-links.
+     */
+    resetFilters() {
+        this.searchQuery = '';
+        document.getElementById('searchBox').value = '';
+        this.dateFrom = this.dateTo = null;
+        document.getElementById('dateFrom').value = '';
+        document.getElementById('dateTo').value = '';
+        this.filters = { debug: true, information: true, warning: true, error: true };
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.classList.add('active');
+            btn.setAttribute('aria-pressed', 'true');
+        });
+        this.currentPage = 1;
+        this.applyFilters();
+        this.showToast('Filters reset');
+    }
+
     applyFilters() {
         this.filteredLogs = this.logs.filter(log => {
             if (!this.filters[log.level]) return false;
@@ -875,7 +929,17 @@ class LogViewer {
     getSortedLogs(logs) {
         // Fast path: If no sort needed or empty logs
         if (!logs || logs.length === 0) return logs;
-        
+
+        // Cache: re-sort only when filteredLogs reference changes or sort
+        // settings change. Pagination keeps the same reference, so flipping
+        // pages is now O(1) instead of O(n log n).
+        if (this._sortCache
+            && this._sortCache.logs === logs
+            && this._sortCache.column === this.sortColumn
+            && this._sortCache.direction === this.sortDirection) {
+            return this._sortCache.result;
+        }
+
         // Use efficient sorting based on column type
         const sorted = [...logs]; // Shallow copy to avoid mutation
         
@@ -921,6 +985,12 @@ class LogViewer {
         };
         
         sorted.sort((a, b) => compareValues(a, b, this.sortColumn, this.sortDirection));
+        this._sortCache = {
+            logs,
+            column: this.sortColumn,
+            direction: this.sortDirection,
+            result: sorted
+        };
         return sorted;
     }
 

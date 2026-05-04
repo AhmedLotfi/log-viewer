@@ -455,6 +455,14 @@ body.theme-dark, body.theme-blue {
     -webkit-user-select: none;
     user-select: none;
     white-space: nowrap;
+    /* Sticky inside the .log-container scroll context */
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--bg-soft);
+    /* Reinforce the bottom edge while scrolling — collapse-mode borders
+       can disappear when th is sticky. */
+    box-shadow: 0 1px 0 var(--rule);
 }
 .sortable-header {
     cursor: pointer;
@@ -949,6 +957,11 @@ body.theme-blue .loader-overlay { background: rgba(8, 22, 37, 0.78); }
     background: var(--bg-soft);
     border-bottom: 1px solid var(--rule);
     font-weight: 500;
+    /* Sticky inside the report modal's scroll context */
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    box-shadow: 0 1px 0 var(--rule);
 }
 .report-table td {
     padding: 11px 14px;
