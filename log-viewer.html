@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Serilog Log Viewer Pro</title>
+    <title>Log Viewer Pro</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap" rel="stylesheet">
@@ -17,10 +17,10 @@
         <div class="header">
             <h1>
                 <span>Log Viewer Pro</span>
-                <div class="theme-toggle">
-                    <button class="theme-btn light active" data-theme="light" title="Light Theme"></button>
-                    <button class="theme-btn dark" data-theme="dark" title="Dark Theme"></button>
-                    <button class="theme-btn blue" data-theme="blue" title="Blue Theme"></button>
+                <div class="theme-toggle" role="group" aria-label="Theme">
+                    <button class="theme-btn light active" data-theme="light" title="Light theme" aria-label="Light theme" aria-pressed="true"></button>
+                    <button class="theme-btn dark" data-theme="dark" title="Dark theme" aria-label="Dark theme" aria-pressed="false"></button>
+                    <button class="theme-btn blue" data-theme="blue" title="Blue theme" aria-label="Blue theme" aria-pressed="false"></button>
                 </div>
             </h1>
             <div class="controls">
@@ -30,15 +30,15 @@
                         <input type="file" id="fileInput" accept=".txt,.log" multiple>
                     </div>
                     <input type="text" id="searchBox" class="search-box" placeholder='Search   ( press / )'>
-                    <div class="filter-group">
+                    <div class="filter-group" role="group" aria-label="Filter by log level">
                         <button class="filter-btn filter-debug active" data-level="debug"
-                            title="Debug Level">DBG</button>
+                            title="Toggle debug entries" aria-label="Toggle debug entries" aria-pressed="true">DBG</button>
                         <button class="filter-btn filter-info active" data-level="information"
-                            title="Information Level">INF</button>
+                            title="Toggle information entries" aria-label="Toggle information entries" aria-pressed="true">INF</button>
                         <button class="filter-btn filter-warning active" data-level="warning"
-                            title="Warning Level">WRN</button>
+                            title="Toggle warning entries" aria-label="Toggle warning entries" aria-pressed="true">WRN</button>
                         <button class="filter-btn filter-error active" data-level="error"
-                            title="Error Level">ERR</button>
+                            title="Toggle error entries" aria-label="Toggle error entries" aria-pressed="true">ERR</button>
                     </div>
                 </div>
                 <div class="controls-row">
@@ -116,17 +116,17 @@
             <button id="lastBtn">Last</button>
         </div>
     </div>
-    <div class="toast" id="toast"></div>
-    <div class="loader-overlay" id="loaderOverlay">
-        <div class="loader"></div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <div class="loader-overlay" id="loaderOverlay" role="status" aria-live="polite" aria-hidden="true">
+        <div class="loader" aria-hidden="true"></div>
         <div class="loader-text">Loading Logs...</div>
         <div class="loader-subtext" id="loaderSubtext">Processing files</div>
     </div>
-    <div class="modal" id="logModal">
+    <div class="modal" id="logModal" role="dialog" aria-modal="true" aria-labelledby="logModalTitle" aria-hidden="true">
         <div class="modal-content">
             <div class="modal-header">
-                <h2 class="modal-title">Log Details</h2>
-                <button class="modal-close" id="modalClose">&times;</button>
+                <h2 class="modal-title" id="logModalTitle">Log Details</h2>
+                <button class="modal-close" id="modalClose" aria-label="Close">&times;</button>
             </div>
             <div class="modal-section">
                 <div class="modal-section-title">Information</div>
@@ -158,16 +158,17 @@
                 <div class="modal-exception" id="modalException"></div>
             </div>
             <div class="modal-actions">
-                <button class="btn btn-success" id="modalCopy">Copy Full Log</button>
+                <button class="btn btn-secondary" id="modalTrace">Show trace</button>
+                <button class="btn btn-success" id="modalCopy">Copy full log</button>
                 <button class="btn btn-secondary" id="modalCloseBtn">Close</button>
             </div>
         </div>
     </div>
-    <div class="modal reports-modal" id="reportsModal">
+    <div class="modal reports-modal" id="reportsModal" role="dialog" aria-modal="true" aria-labelledby="reportsModalTitle" aria-hidden="true">
         <div class="modal-content">
             <div class="modal-header">
-                <h2 class="modal-title">Analytics &amp; Reports</h2>
-                <button class="modal-close" id="reportsClose">&times;</button>
+                <h2 class="modal-title" id="reportsModalTitle">Analytics &amp; Reports</h2>
+                <button class="modal-close" id="reportsClose" aria-label="Close">&times;</button>
             </div>
             <div id="reportsContent">
                 <div class="empty-state">
@@ -175,7 +176,7 @@
                 </div>
             </div>
             <div class="modal-actions">
-                <button class="btn btn-success" id="exportReportBtn">💾 Export Report</button>
+                <button class="btn btn-success" id="exportReportBtn">Export Report</button>
                 <button class="btn btn-secondary" id="reportsCloseBtn">Close</button>
             </div>
         </div>

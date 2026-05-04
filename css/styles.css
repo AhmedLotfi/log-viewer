@@ -291,7 +291,7 @@ body.theme-dark, body.theme-blue {
     font-size: 13px;
     transition: border-color var(--transition), box-shadow var(--transition);
 }
-.search-box::placeholder { color: var(--text-subtle); font-style: italic; }
+.search-box::placeholder { color: var(--text-subtle); }
 .search-box:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
 
 /* Filter pill group — segmented, journal-style */
@@ -366,13 +366,9 @@ body.theme-dark, body.theme-blue {
     background: var(--surface);
     border-right: 1px solid var(--rule);
     border-bottom: 1px solid var(--rule);
-    cursor: pointer;
     position: relative;
-    transition: background var(--transition);
 }
 .stats-card:last-child { border-right: 0; }
-.stats-card:hover { background: var(--surface-hover); }
-.stats-card:hover .stat-value { color: var(--accent); }
 
 .stat-label {
     font-family: var(--font-mono);
@@ -392,11 +388,6 @@ body.theme-dark, body.theme-blue {
     line-height: 1;
     font-feature-settings: "tnum", "lnum";
     transition: color var(--transition);
-}
-
-/* Tighten last row borders */
-@media (min-width: 769px) {
-    .stats-container > .stats-card:nth-last-child(-n+9):nth-child(n+1) { border-bottom: 0; }
 }
 
 /* ---------- File list ---------- */
@@ -697,6 +688,28 @@ body.theme-dark, body.theme-blue {
     letter-spacing: 0.08em;
     padding: 0 14px;
     text-transform: uppercase;
+}
+
+/* ---------- Dropzone (drag files anywhere) ---------- */
+body.dropzone-active::after {
+    content: 'Drop log files to load';
+    position: fixed;
+    inset: 16px;
+    pointer-events: none;
+    z-index: 9000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px dashed var(--accent);
+    border-radius: var(--radius-lg);
+    background: var(--accent-soft);
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--accent);
 }
 
 /* ---------- Toast ---------- */
@@ -1113,7 +1126,7 @@ body.theme-blue .loader-overlay { background: rgba(8, 22, 37, 0.78); }
 /* ---------- Responsive ---------- */
 @media (max-width: 768px) {
     .header { padding: 14px 16px; }
-    .header h1 { font-size: 22px; flex-direction: column; align-items: flex-start; gap: 10px; }
+    .header h1 { font-size: 16px; flex-direction: column; align-items: flex-start; gap: 10px; }
     .controls-row { flex-direction: column; align-items: stretch; }
     .btn { width: 100%; justify-content: center; }
     .filter-group { justify-content: center; }

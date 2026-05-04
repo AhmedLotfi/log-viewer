@@ -33,7 +33,9 @@ class LogViewer {
     applyTheme(theme, announce) {
         document.body.className = 'theme-' + theme;
         document.querySelectorAll('.theme-btn').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.theme === theme);
+            const active = btn.dataset.theme === theme;
+            btn.classList.toggle('active', active);
+            btn.setAttribute('aria-pressed', active ? 'true' : 'false');
         });
         try { localStorage.setItem(this.STORAGE_KEY_THEME, theme); } catch (e) { /* storage blocked */ }
         if (announce) this.showToast('Theme: ' + theme);
@@ -61,6 +63,7 @@ class LogViewer {
         document.getElementById('modalClose').addEventListener('click', () => this.closeModal());
         document.getElementById('modalCloseBtn').addEventListener('click', () => this.closeModal());
         document.getElementById('modalCopy').addEventListener('click', () => this.copyModalLog());
+        document.getElementById('modalTrace').addEventListener('click', () => this.showTraceForCurrentLog());
         document.getElementById('logModal').addEventListener('click', (e) => {
             if (e.target.id === 'logModal') this.closeModal();
         });
@@ -82,6 +85,107 @@ class LogViewer {
             btn.addEventListener('click', (e) => this.switchExceptionTab(e.target.dataset.tab));
         });
         this.attachKeyboardShortcuts();
+        this.attachDragAndDrop();
+        this.attachUrlState();
+    }
+
+    attachDragAndDrop() {
+        const dropTarget = document.body;
+        let dragDepth = 0; // track nested dragenter/leave so leaving a child doesn't dismiss
+
+        const setActive = (active) => {
+            document.body.classList.toggle('dropzone-active', active);
+        };
+
+        dropTarget.addEventListener('dragenter', (e) => {
+            if (!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return;
+            e.preventDefault();
+            dragDepth++;
+            setActive(true);
+        });
+        dropTarget.addEventListener('dragover', (e) => {
+            if (!e.dataTransfer) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+        });
+        dropTarget.addEventListener('dragleave', (e) => {
+            if (!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return;
+            dragDepth = Math.max(0, dragDepth - 1);
+            if (dragDepth === 0) setActive(false);
+        });
+        dropTarget.addEventListener('drop', (e) => {
+            if (!e.dataTransfer || !e.dataTransfer.files.length) return;
+            e.preventDefault();
+            dragDepth = 0;
+            setActive(false);
+            // Filter to .txt and .log files (matches the file input's accept attribute).
+            const files = Array.from(e.dataTransfer.files).filter(f =>
+                /\.(txt|log)$/i.test(f.name) || f.type === 'text/plain'
+            );
+            if (!files.length) {
+                this.showToast('No .txt or .log files found in drop');
+                return;
+            }
+            // Reuse loadFiles by faking the input event shape.
+            this.loadFiles({ target: { files } });
+        });
+    }
+
+    attachUrlState() {
+        // Read filters from URL hash on load.
+        this.applyUrlState();
+        // Persist on change (debounced via the existing applyFilters path).
+        window.addEventListener('hashchange', () => this.applyUrlState());
+    }
+
+    applyUrlState() {
+        const params = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+        const search = params.get('q');
+        if (search != null && search !== this.searchQuery) {
+            const box = document.getElementById('searchBox');
+            box.value = search;
+            this.searchQuery = search.toLowerCase();
+        }
+        for (const lvl of ['debug', 'information', 'warning', 'error']) {
+            const v = params.get(lvl);
+            if (v === '0' || v === '1') {
+                this.filters[lvl] = v === '1';
+                const btn = document.querySelector('.filter-btn[data-level="' + lvl + '"]');
+                if (btn) btn.classList.toggle('active', this.filters[lvl]);
+            }
+        }
+        const from = params.get('from');
+        const to = params.get('to');
+        if (from) {
+            document.getElementById('dateFrom').value = from;
+            this.setDateFrom(from);
+        }
+        if (to) {
+            document.getElementById('dateTo').value = to;
+            this.setDateTo(to);
+        }
+        const page = parseInt(params.get('p'), 10);
+        if (!isNaN(page) && page > 0) this.currentPage = page;
+        if (this.logs.length) {
+            this.applyFilters();
+        }
+    }
+
+    writeUrlState() {
+        const params = new URLSearchParams();
+        if (this.searchQuery) params.set('q', this.searchQuery);
+        for (const lvl of ['debug', 'information', 'warning', 'error']) {
+            if (!this.filters[lvl]) params.set(lvl, '0'); // only record off-state to keep URLs short
+        }
+        const fromInput = document.getElementById('dateFrom').value;
+        const toInput = document.getElementById('dateTo').value;
+        if (fromInput) params.set('from', fromInput);
+        if (toInput) params.set('to', toInput);
+        if (this.currentPage > 1) params.set('p', String(this.currentPage));
+        const next = params.toString();
+        const target = next ? '#' + next : window.location.pathname + window.location.search;
+        // Replace state to avoid filling history with every keystroke.
+        history.replaceState(null, '', target || '#');
     }
 
     attachKeyboardShortcuts() {
@@ -446,15 +550,15 @@ class LogViewer {
                             const msgCount = exStats.messages.get(message) || 0;
                             exStats.messages.set(message, msgCount + 1);
 
-                            // If this is related to an API call, increment error count
-                            if ((current.correlationId || current.requestId) && this.apiCalls.size > 0) {
-                                for (const [_, stats] of this.apiCalls) {
-                                    if (stats.correlationId === current.correlationId ||
-                                        stats.requestId === current.requestId) {
-                                        stats.errors++;
-                                        break;
-                                    }
-                                }
+                            // Attribute this exception to the API call that owned the
+                            // correlation/request id (built during parse), and bump that
+                            // API's error count. Previously this loop checked
+                            // stats.correlationId which is never stored on apiCalls
+                            // entries, so error counts never incremented.
+                            const apiPath = (current.correlationId && this.apiByCorrelation.get(current.correlationId))
+                                || (current.requestId && this.apiByCorrelation.get(current.requestId));
+                            if (apiPath && this.apiCalls.has(apiPath)) {
+                                this.apiCalls.get(apiPath).errors++;
                             }
                         }
                     }
@@ -497,6 +601,7 @@ class LogViewer {
         const lvl = btn.dataset.level;
         this.filters[lvl] = !this.filters[lvl];
         btn.classList.toggle('active');
+        btn.setAttribute('aria-pressed', this.filters[lvl] ? 'true' : 'false');
         this.currentPage = 1;
         this.applyFilters();
     }
@@ -508,7 +613,15 @@ class LogViewer {
     }
 
     setDateFrom(v) {
-        this.dateFrom = v ? new Date(v) : null;
+        if (!v) {
+            this.dateFrom = null;
+        } else {
+            const d = new Date(v);
+            // date-only -> start of day so picking the same date for From and To
+            // includes the entire day rather than excluding it.
+            if (v.length <= 10) d.setHours(0, 0, 0, 0);
+            this.dateFrom = d;
+        }
         this.applyFilters();
     }
 
@@ -550,6 +663,7 @@ class LogViewer {
             return true;
         });
         this.render();
+        if (typeof this.writeUrlState === 'function') this.writeUrlState();
     }
 
     changePageSize(size) {
@@ -562,17 +676,20 @@ class LogViewer {
     firstPage() {
         this.currentPage = 1;
         this.render();
+        this.writeUrlState();
     }
 
     lastPage() {
         this.currentPage = Math.ceil(this.filteredLogs.length / this.logsPerPage);
         this.render();
+        this.writeUrlState();
     }
 
     prevPage() {
         if (this.currentPage > 1) {
             this.currentPage--;
             this.render();
+            this.writeUrlState();
         }
     }
 
@@ -581,6 +698,7 @@ class LogViewer {
         if (this.currentPage < total) {
             this.currentPage++;
             this.render();
+            this.writeUrlState();
         }
     }
 
@@ -635,10 +753,14 @@ class LogViewer {
             el.style.cursor = 'pointer';
         });
 
-        // Add header sort handlers
+        // Add header sort handlers (mouse + keyboard)
         container.querySelectorAll('.log-table thead th[data-column]').forEach(th => {
             th.style.cursor = 'pointer';
-            th.addEventListener('click', () => this.handleColumnSort(th.dataset.column));
+            const sort = () => this.handleColumnSort(th.dataset.column);
+            th.addEventListener('click', sort);
+            th.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sort(); }
+            });
         });
 
         const total = Math.ceil(logsToRender.length / this.logsPerPage);
@@ -658,9 +780,19 @@ class LogViewer {
 
     showModal(log) {
         this.currentModalLog = log;
+        this._lastFocus = document.activeElement;
         document.getElementById('modalTimestamp').textContent = this.formatDate(log.date);
         document.getElementById('modalLevel').textContent = log.level.toUpperCase();
-        document.getElementById('modalThread').textContent = log.correlationId || log.threadId;
+        const threadEl = document.getElementById('modalThread');
+        const id = log.correlationId || log.threadId;
+        threadEl.textContent = id;
+        const traceBtn = document.getElementById('modalTrace');
+        if (traceBtn) {
+            const hasTrace = id && id !== 'N/A';
+            traceBtn.disabled = !hasTrace;
+            traceBtn.style.opacity = hasTrace ? '' : '0.4';
+            traceBtn.style.pointerEvents = hasTrace ? '' : 'none';
+        }
         document.getElementById('modalLength').textContent = log.message.length + ' characters';
         document.getElementById('modalMessage').textContent = log.message;
 
@@ -672,11 +804,21 @@ class LogViewer {
             modalExceptionSection.classList.add('hidden');
         }
 
-        document.getElementById('logModal').classList.add('show');
+        const modal = document.getElementById('logModal');
+        modal.classList.add('show');
+        modal.setAttribute('aria-hidden', 'false');
+        // Focus the close button so Esc / Enter immediately work for keyboard users.
+        setTimeout(() => document.getElementById('modalClose').focus(), 0);
     }
 
     closeModal() {
-        document.getElementById('logModal').classList.remove('show');
+        const modal = document.getElementById('logModal');
+        modal.classList.remove('show');
+        modal.setAttribute('aria-hidden', 'true');
+        if (this._lastFocus && typeof this._lastFocus.focus === 'function') {
+            this._lastFocus.focus();
+            this._lastFocus = null;
+        }
     }
 
     copyModalLog() {
@@ -684,6 +826,24 @@ class LogViewer {
             this.copyLog(this.currentModalLog);
             this.closeModal();
         }
+    }
+
+    /**
+     * Filter the main log view to all entries sharing this log's correlation
+     * (or thread, if no correlation is present). The result is a chronological
+     * trace of the request.
+     */
+    showTraceForCurrentLog() {
+        const log = this.currentModalLog;
+        if (!log) return;
+        const id = log.correlationId || log.threadId;
+        if (!id || id === 'N/A') {
+            this.showToast('No correlation/thread on this entry');
+            return;
+        }
+        this.closeModal();
+        this.filterByText(id);
+        this.showToast('Showing trace: ' + (id.length > 16 ? id.substring(0, 12) + '…' : id));
     }
 
     formatDate(date) {
@@ -700,7 +860,6 @@ class LogViewer {
         return dayName + ', ' + month + ' ' + day + ', ' + year + ' at ' + hours + ':' + minutes + ':' + seconds + '.' + ms;
     }
 
-    // ⭐ Sorting Performance Optimization
     handleColumnSort(column) {
         // Toggle sort direction if clicking the same column, otherwise reset to ascending
         if (this.sortColumn === column) {
@@ -776,17 +935,18 @@ class LogViewer {
 
         const getSortIndicator = (column) => {
             if (this.sortColumn !== column) return '';
-            return this.sortDirection === 'asc' ? ' ▲' : ' ▼';
+            return this.sortDirection === 'asc' ? ' ↑' : ' ↓';
         };
 
         let html = '<table class="log-table"><thead><tr>';
-        
+
         headerCells.forEach(cell => {
             const indicator = getSortIndicator(cell.column);
-            const isActive = this.sortColumn === cell.column ? ' active' : '';
-            html += `<th data-column="${cell.column}" class="sortable-header${isActive}">${cell.label}${indicator}</th>`;
+            const isActive = this.sortColumn === cell.column;
+            const ariaSort = isActive ? (this.sortDirection === 'asc' ? 'ascending' : 'descending') : 'none';
+            html += `<th data-column="${cell.column}" class="sortable-header${isActive ? ' active' : ''}" role="button" tabindex="0" aria-sort="${ariaSort}">${cell.label}${indicator}</th>`;
         });
-        
+
         html += '</tr></thead><tbody>';
         
         logs.forEach(log => {
@@ -805,25 +965,6 @@ class LogViewer {
         
         html += '</tbody></table>';
         return html;
-    }
-
-    renderLog(log) {
-        const msg = this.highlight(this.escape(log.message));
-        const exc = this.highlight(this.escape(log.exception));
-        const threadDisplay = log.correlationId ? log.correlationId.substring(0, 8) + '...' : log.threadId;
-        return '<div class="log-entry ' + log.level + '">' +
-            '<div class="log-header">' +
-            '<span class="log-timestamp">' + this.escape(log.timestamp) + '</span>' +
-            '<span class="log-level ' + log.level + '">' + log.level.toUpperCase() + '</span>' +
-            '</div>' +
-            '<div class="log-message">' + msg + '</div>' +
-            '<div class="log-meta">' +
-            '<span>Thread: ' + this.escape(threadDisplay) + '</span>' +
-            '<span>' + log.message.length + ' chars</span>' +
-            (log.format === 'format2' && log.correlationId ? '<span title="' + this.escape(log.correlationId) + '">Correlation</span>' : '') +
-            '</div>' +
-            (log.exception.trim() ? '<div class="log-exception">' + exc + '</div>' : '') +
-            '</div>';
     }
 
     normalizeApiPath(path) {
@@ -993,12 +1134,22 @@ class LogViewer {
     }
 
     showReports() {
-        document.getElementById('reportsModal').classList.add('show');
+        this._lastFocus = document.activeElement;
+        const modal = document.getElementById('reportsModal');
+        modal.classList.add('show');
+        modal.setAttribute('aria-hidden', 'false');
         this.generateReports();
+        setTimeout(() => document.getElementById('reportsClose').focus(), 0);
     }
 
     closeReports() {
-        document.getElementById('reportsModal').classList.remove('show');
+        const modal = document.getElementById('reportsModal');
+        modal.classList.remove('show');
+        modal.setAttribute('aria-hidden', 'true');
+        if (this._lastFocus && typeof this._lastFocus.focus === 'function') {
+            this._lastFocus.focus();
+            this._lastFocus = null;
+        }
     }
 
     generateReports() {
@@ -1074,6 +1225,112 @@ class LogViewer {
         document.querySelectorAll('.api-performance-table .sortable-col').forEach(th => {
             th.addEventListener('click', () => this.handleApiTableSort(th.dataset.sortColumn));
         });
+
+        // Click delegation inside the reports modal: row-expand buttons toggle
+        // detail rows; otherwise rows with data-filter cross-link to the log view.
+        const reportsContent = document.getElementById('reportsContent');
+        reportsContent.addEventListener('click', (e) => {
+            const expandBtn = e.target.closest('.row-expand');
+            if (expandBtn) {
+                e.stopPropagation();
+                this.toggleExceptionDetail(expandBtn);
+                return;
+            }
+            if (e.target.closest('th')) return;
+            const row = e.target.closest('[data-filter]');
+            if (!row) return;
+            this.filterByText(row.dataset.filter);
+        });
+    }
+
+    /**
+     * Toggle a detail sub-row showing all reasons + APIs (or types + APIs) for
+     * the given exception row. The lookup key is "type:..." or "reason:..."
+     * stored in data-detail-key on the parent row.
+     */
+    toggleExceptionDetail(button) {
+        const row = button.closest('tr');
+        if (!row) return;
+        const next = row.nextElementSibling;
+        if (next && next.classList.contains('exception-detail-row')) {
+            next.remove();
+            button.classList.remove('expanded');
+            button.textContent = '▸';
+            return;
+        }
+
+        const key = row.dataset.detailKey || '';
+        const [kind, ...rest] = key.split(':');
+        const id = rest.join(':');
+        if (!kind || !id) return;
+
+        const map = kind === 'type'
+            ? this.exceptionResponses.byType
+            : this.exceptionResponses.byReason;
+        const stats = map && map.get(id);
+        if (!stats) return;
+
+        const colspan = row.children.length;
+        const detail = document.createElement('tr');
+        detail.className = 'exception-detail-row';
+        detail.innerHTML = '<td colspan="' + colspan + '">' + this._renderExceptionDetail(kind, stats) + '</td>';
+        row.parentNode.insertBefore(detail, next);
+        button.classList.add('expanded');
+        button.textContent = '▾';
+    }
+
+    _renderExceptionDetail(kind, stats) {
+        const sortedEntries = (m) => Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
+        const total = stats.count || 1;
+
+        // The "other" facet for each kind:
+        const otherLabel = kind === 'type' ? 'Reasons' : 'Types';
+        const otherMap = kind === 'type' ? stats.reasons : stats.types;
+        const otherEntries = sortedEntries(otherMap).slice(0, 10);
+        const apiEntries = sortedEntries(stats.apis).slice(0, 10);
+
+        const list = (entries, isApi) => {
+            if (!entries.length) return '<p class="exception-detail-empty">No data</p>';
+            return '<ul class="exception-detail-list">' + entries.map(([name, count]) => {
+                const share = ((count / total) * 100).toFixed(1);
+                const filterable = isApi
+                    ? (name && name !== 'Unknown')
+                    : (kind === 'type' ? true : (name !== 'Unknown'));
+                const cls = filterable ? ' class="report-row-link"' : '';
+                const filterAttr = filterable ? ' data-filter="' + this.escape(name) + '"' : '';
+                return '<li' + cls + filterAttr + '>'
+                    + '<span class="exception-detail-name">' + this.escape(name) + '</span>'
+                    + '<span class="exception-detail-count">' + this._formatNumber(count) + '</span>'
+                    + '<span class="exception-detail-share">' + share + '%</span>'
+                    + '</li>';
+            }).join('') + '</ul>';
+        };
+
+        return '<div class="exception-detail">'
+            + '<div class="exception-detail-col">'
+            + '<h5>' + otherLabel + '</h5>'
+            + list(otherEntries, false)
+            + '</div>'
+            + '<div class="exception-detail-col">'
+            + '<h5>Thrown by</h5>'
+            + list(apiEntries, true)
+            + '</div>'
+            + '</div>';
+    }
+
+    /**
+     * Apply a text filter from a report cross-link, close the reports modal,
+     * and surface the active filter in the search box so it can be cleared.
+     */
+    filterByText(text) {
+        if (!text) return;
+        this.searchQuery = text.toLowerCase();
+        const search = document.getElementById('searchBox');
+        search.value = text;
+        this.currentPage = 1;
+        this.applyFilters();
+        this.closeReports();
+        this.showToast('Filtered: ' + text);
     }
 
     // ---------- Helpers ----------
@@ -1261,7 +1518,7 @@ class LogViewer {
                     .join(' ')
                 : '—';
 
-            html += '<tr class="api-row ' + statusClass + '">';
+            html += '<tr class="api-row report-row-link ' + statusClass + '" data-filter="' + this.escape(path) + '" title="Click to filter logs by this endpoint">';
             html += '<td class="report-code">' + this.escape(path) + '</td>';
             html += '<td class="numeric">' + this._formatNumber(stats.count) + '</td>';
             html += '<td class="numeric">' + this._formatMs(avgTime) + '</td>';
@@ -1354,7 +1611,7 @@ class LogViewer {
                     .join(' ')
                 : '—';
 
-            html += '<tr class="internal-http-row">';
+            html += '<tr class="internal-http-row report-row-link" data-filter="' + this.escape(path) + '" title="Click to filter logs by this call">';
             html += '<td class="report-code">' + this.escape(path) + '</td>';
             html += '<td class="numeric">' + this._formatNumber(stats.count) + '</td>';
             html += '<td class="numeric">' + this._formatMs(avgTime) + '</td>';
@@ -1393,7 +1650,7 @@ class LogViewer {
         const typeEntries = Array.from(this.exceptionResponses.byType.entries())
             .sort((a, b) => b[1].count - a[1].count);
         let typeHtml = '<table class="report-table exception-table">';
-        typeHtml += '<thead><tr><th>Type</th><th class="numeric">Count</th><th class="numeric">Share</th><th>Top reason</th><th>Thrown by</th></tr></thead><tbody>';
+        typeHtml += '<thead><tr><th class="col-expand"></th><th>Type</th><th class="numeric">Count</th><th class="numeric">Share</th><th>Top reason</th><th>Thrown by</th></tr></thead><tbody>';
         for (const [type, stats] of typeEntries) {
             let topReason = '—';
             let topReasonCount = 0;
@@ -1406,7 +1663,11 @@ class LogViewer {
                 if (count > topApiCount) { topApiCount = count; topApi = api; }
             }
             const pct = (stats.count / totalExceptions) * 100;
-            typeHtml += '<tr class="exception-row">';
+            const filterable = type !== 'Unknown';
+            typeHtml += '<tr class="exception-row' + (filterable ? ' report-row-link' : '') + '"'
+                + (filterable ? ' data-filter="' + this.escape(type) + '" title="Click to filter logs by this exception type"' : '')
+                + ' data-detail-key="type:' + this.escape(type) + '">';
+            typeHtml += '<td class="col-expand"><button type="button" class="row-expand" aria-label="Toggle details">▸</button></td>';
             typeHtml += '<td class="report-code exception-type-name">' + this.escape(type) + '</td>';
             typeHtml += '<td class="numeric">' + this._formatNumber(stats.count) + '</td>';
             typeHtml += '<td class="numeric"><div class="percentage-container">' + pct.toFixed(1) + '%<div class="exception-percentage-bar" style="width:' + pct.toFixed(1) + '%"></div></div></td>';
@@ -1420,7 +1681,7 @@ class LogViewer {
         const reasonEntries = Array.from(this.exceptionResponses.byReason.entries())
             .sort((a, b) => b[1].count - a[1].count);
         let reasonHtml = '<table class="report-table exception-table">';
-        reasonHtml += '<thead><tr><th>Reason</th><th class="numeric">Count</th><th class="numeric">Share</th><th>Top type</th><th>Thrown by</th></tr></thead><tbody>';
+        reasonHtml += '<thead><tr><th class="col-expand"></th><th>Reason</th><th class="numeric">Count</th><th class="numeric">Share</th><th>Top type</th><th>Thrown by</th></tr></thead><tbody>';
         for (const [reason, stats] of reasonEntries) {
             let topType = '—';
             let topTypeCount = 0;
@@ -1433,7 +1694,8 @@ class LogViewer {
                 if (count > topApiCount) { topApiCount = count; topApi = api; }
             }
             const pct = (stats.count / totalExceptions) * 100;
-            reasonHtml += '<tr class="exception-row">';
+            reasonHtml += '<tr class="exception-row" data-detail-key="reason:' + this.escape(reason) + '">';
+            reasonHtml += '<td class="col-expand"><button type="button" class="row-expand" aria-label="Toggle details">▸</button></td>';
             reasonHtml += '<td class="report-code exception-reason-name">' + this.escape(reason) + '</td>';
             reasonHtml += '<td class="numeric">' + this._formatNumber(stats.count) + '</td>';
             reasonHtml += '<td class="numeric"><div class="percentage-container">' + pct.toFixed(1) + '%<div class="exception-percentage-bar" style="width:' + pct.toFixed(1) + '%"></div></div></td>';
@@ -1484,7 +1746,8 @@ class LogViewer {
             for (const [thread, count] of topThreads) {
                 const pct = (count / total) * 100;
                 const relPct = (count / topMax) * 100;
-                html += '<tr>';
+                const filterable = thread && thread !== 'N/A';
+                html += '<tr' + (filterable ? ' class="report-row-link" data-filter="' + this.escape(thread) + '" title="Click to filter logs by this thread / correlation"' : '') + '>';
                 html += '<td class="report-code">' + this.escape(thread) + '</td>';
                 html += '<td class="numeric">' + this._formatNumber(count) + '</td>';
                 html += '<td class="numeric">' + pct.toFixed(1) + '%</td>';
@@ -1602,33 +1865,132 @@ class LogViewer {
             return;
         }
 
-        const report = {
-            dateRange: {
-                from: this.formatDate(this.logs[0].date),
-                to: this.formatDate(this.logs[this.logs.length - 1].date)
-            },
-            totalLogs: this.logs.length,
-            byLevel: {},
-            byThread: {},
-            byHour: {}
-        };
+        const firstDate = this.logs[0].date;
+        const lastDate = this.logs[this.logs.length - 1].date;
+        const spanMs = Math.max(1, lastDate - firstDate);
+        const spanMinutes = spanMs / 60000;
+        const spanHours = spanMs / 3600000;
 
-        // Count by level
-        this.logs.forEach(log => {
-            report.byLevel[log.level] = (report.byLevel[log.level] || 0) + 1;
-        });
-
-        // Count by thread
-        this.logs.forEach(log => {
+        // Level distribution + log health (matches the report modal calc).
+        const byLevel = { debug: 0, information: 0, warning: 0, error: 0 };
+        const byThread = {};
+        const byHour = new Array(24).fill(0);
+        for (const log of this.logs) {
+            byLevel[log.level] = (byLevel[log.level] || 0) + 1;
             const thread = log.correlationId || log.threadId;
-            report.byThread[thread] = (report.byThread[thread] || 0) + 1;
-        });
+            byThread[thread] = (byThread[thread] || 0) + 1;
+            byHour[log.date.getHours()]++;
+        }
+        const errorRate = (byLevel.error / this.logs.length) * 100;
+        const warningRate = (byLevel.warning / this.logs.length) * 100;
+        const logHealth = Math.max(0, Math.min(100, Math.round(100 - errorRate * 5 - warningRate * 1.5)));
 
-        // Count by hour
-        this.logs.forEach(log => {
-            const hour = log.date.getHours();
-            report.byHour[hour] = (report.byHour[hour] || 0) + 1;
-        });
+        // API performance (only completed call pairs).
+        const apiEndpoints = [];
+        let apiTotalCalls = 0, apiTotalTime = 0, apiTotalErrors = 0;
+        if (this.apiCalls) {
+            for (const [path, stats] of this.apiCalls) {
+                if (stats.count === 0) continue;
+                apiTotalCalls += stats.count;
+                apiTotalTime += stats.totalTime;
+                apiTotalErrors += stats.errors;
+                apiEndpoints.push({
+                    path,
+                    calls: stats.count,
+                    avgMs: +(stats.totalTime / stats.count).toFixed(2),
+                    minMs: stats.minTime === Infinity ? 0 : +stats.minTime.toFixed(2),
+                    maxMs: +stats.maxTime.toFixed(2),
+                    errors: stats.errors,
+                    errorRate: +((stats.errors / stats.count) * 100).toFixed(2)
+                });
+            }
+            apiEndpoints.sort((a, b) => b.calls - a.calls);
+        }
+        const apiHealth = apiTotalCalls > 0
+            ? Math.max(0, Math.min(100, Math.round(100 - (apiTotalErrors / apiTotalCalls) * 200)))
+            : null;
+
+        // Internal HTTP.
+        const internalEndpoints = [];
+        let internalTotalCalls = 0, internalTotalTime = 0, internalTotalErrors = 0;
+        if (this.innerApiCalls) {
+            for (const [path, stats] of this.innerApiCalls) {
+                if (stats.count === 0) continue;
+                internalTotalCalls += stats.count;
+                internalTotalTime += stats.totalTime;
+                internalTotalErrors += stats.errors;
+                internalEndpoints.push({
+                    path,
+                    calls: stats.count,
+                    avgMs: +(stats.totalTime / stats.count).toFixed(2),
+                    minMs: stats.minTime === Infinity ? 0 : +stats.minTime.toFixed(2),
+                    maxMs: +stats.maxTime.toFixed(2),
+                    errors: stats.errors,
+                    statusCodes: Object.fromEntries(stats.statusCodes || [])
+                });
+            }
+            internalEndpoints.sort((a, b) => b.calls - a.calls);
+        }
+        const internalHealth = internalTotalCalls > 0
+            ? Math.max(0, Math.min(100, Math.round(100 - (internalTotalErrors / internalTotalCalls) * 200)))
+            : null;
+
+        // Exceptions — re-parse to ensure fresh data.
+        this.parseExceptionResponses();
+        const exceptionsByType = [];
+        if (this.exceptionResponses) {
+            for (const [type, stats] of this.exceptionResponses.byType) {
+                let topReason = null, topReasonCount = 0;
+                for (const [r, c] of stats.reasons) if (c > topReasonCount) { topReason = r; topReasonCount = c; }
+                let topApi = null, topApiCount = 0;
+                for (const [a, c] of stats.apis) if (c > topApiCount) { topApi = a; topApiCount = c; }
+                exceptionsByType.push({ type, count: stats.count, topReason, topApi });
+            }
+            exceptionsByType.sort((a, b) => b.count - a.count);
+        }
+
+        const report = {
+            generatedAt: new Date().toISOString(),
+            range: {
+                from: firstDate.toISOString(),
+                to: lastDate.toISOString(),
+                spanMinutes: +spanMinutes.toFixed(1),
+                spanHours: +spanHours.toFixed(2)
+            },
+            files: this.loadedFileNames,
+            totals: {
+                entries: this.logs.length,
+                byLevel,
+                logHealth
+            },
+            api: apiTotalCalls > 0 ? {
+                totalCalls: apiTotalCalls,
+                avgResponseMs: +(apiTotalTime / apiTotalCalls).toFixed(2),
+                successRate: +(((apiTotalCalls - apiTotalErrors) / apiTotalCalls) * 100).toFixed(2),
+                throughputPerMin: +(apiTotalCalls / spanMinutes).toFixed(2),
+                health: apiHealth,
+                endpoints: apiEndpoints
+            } : null,
+            internalHttp: internalTotalCalls > 0 ? {
+                totalCalls: internalTotalCalls,
+                avgResponseMs: +(internalTotalTime / internalTotalCalls).toFixed(2),
+                successRate: +(((internalTotalCalls - internalTotalErrors) / internalTotalCalls) * 100).toFixed(2),
+                health: internalHealth,
+                endpoints: internalEndpoints
+            } : null,
+            exceptions: exceptionsByType.length > 0 ? {
+                total: exceptionsByType.reduce((s, e) => s + e.count, 0),
+                uniqueTypes: exceptionsByType.length,
+                byType: exceptionsByType
+            } : null,
+            activity: {
+                byHour: Object.fromEntries(byHour.map((v, h) => [String(h).padStart(2, '0'), v])),
+                topThreads: Object.entries(byThread)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 20)
+                    .map(([thread, count]) => ({ thread, count }))
+            }
+        };
 
         const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -1637,7 +1999,7 @@ class LogViewer {
         a.download = 'log-report-' + new Date().toISOString().split('T')[0] + '.json';
         a.click();
         URL.revokeObjectURL(url);
-        this.showToast('Report exported successfully');
+        this.showToast('Report exported');
     }
 }
 
