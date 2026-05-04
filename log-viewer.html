@@ -29,7 +29,7 @@
                         <label for="fileInput" class="btn btn-primary">Load Log Files</label>
                         <input type="file" id="fileInput" accept=".txt,.log" multiple>
                     </div>
-                    <input type="text" id="searchBox" class="search-box" placeholder="Search...">
+                    <input type="text" id="searchBox" class="search-box" placeholder='Search   ( press / )'>
                     <div class="filter-group">
                         <button class="filter-btn filter-debug active" data-level="debug"
                             title="Debug Level">DBG</button>
@@ -59,7 +59,7 @@
                     </select>
                     <button class="btn btn-success" id="exportBtn">Export</button>
                     <button class="btn btn-danger" id="clearBtn">Clear</button>
-                    <button class="btn btn-primary" id="reportsBtn">📊 Reports</button>
+                    <button class="btn btn-primary" id="reportsBtn">Reports</button>
                 </div>
             </div>
             <div class="stats-container">
@@ -104,9 +104,8 @@
         </div>
         <div class="log-container" id="logContainer">
             <div class="empty-state">
-                <div class="empty-state-icon">📋</div>
                 <h2>No logs loaded</h2>
-                <p>Load log files to get started</p>
+                <p>Load log files to get started.</p>
             </div>
         </div>
         <div class="pagination hidden" id="pagination">
@@ -167,24 +166,12 @@
     <div class="modal reports-modal" id="reportsModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2 class="modal-title">📊 Analytics & Reports</h2>
+                <h2 class="modal-title">Analytics &amp; Reports</h2>
                 <button class="modal-close" id="reportsClose">&times;</button>
             </div>
             <div id="reportsContent">
                 <div class="empty-state">
-                    <div class="empty-state-icon">📊</div>
-                    <h2>Loading Reports...</h2>
-                </div>
-            </div>
-            <div id="exceptionResponseSection" class="hidden exception-response-section">
-                <div class="report-section">
-                    <h3 class="report-title">🔍 Exception Response Analysis</h3>
-                    <div class="exception-tabs">
-                        <button class="exception-tab-btn active" data-tab="by-type">Grouped by TYPE</button>
-                        <button class="exception-tab-btn" data-tab="by-reason">Grouped by REASON</button>
-                    </div>
-                    <div id="exceptionByType" class="exception-tab-content active"></div>
-                    <div id="exceptionByReason" class="exception-tab-content hidden"></div>
+                    <h2>Loading reports&hellip;</h2>
                 </div>
             </div>
             <div class="modal-actions">

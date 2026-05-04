@@ -17,12 +17,37 @@ class LogViewer {
         // Sorting state for API Performance table
         this.apiTableSortColumn = 'avgTime'; // Default sort column
         this.apiTableSortDirection = 'desc'; // 'asc' or 'desc'
+        this.STORAGE_KEY_THEME = 'logViewer.theme';
         this.init();
+        this.restoreTheme();
+    }
+
+    restoreTheme() {
+        let saved = null;
+        try { saved = localStorage.getItem(this.STORAGE_KEY_THEME); } catch (e) { /* storage blocked */ }
+        if (saved && ['light', 'dark', 'blue'].includes(saved)) {
+            this.applyTheme(saved, false);
+        }
+    }
+
+    applyTheme(theme, announce) {
+        document.body.className = 'theme-' + theme;
+        document.querySelectorAll('.theme-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.theme === theme);
+        });
+        try { localStorage.setItem(this.STORAGE_KEY_THEME, theme); } catch (e) { /* storage blocked */ }
+        if (announce) this.showToast('Theme: ' + theme);
     }
 
     init() {
         document.getElementById('fileInput').addEventListener('change', (e) => this.loadFiles(e));
-        document.getElementById('searchBox').addEventListener('input', (e) => this.search(e.target.value));
+        // Debounced search: avoid re-filtering on every keystroke when logs are large.
+        let searchTimer = null;
+        document.getElementById('searchBox').addEventListener('input', (e) => {
+            const value = e.target.value;
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => this.search(value), 150);
+        });
         document.getElementById('clearBtn').addEventListener('click', () => this.clear());
         document.getElementById('exportBtn').addEventListener('click', () => this.exportLogs());
         document.getElementById('clearDateBtn').addEventListener('click', () => this.clearDateFilter());
@@ -56,14 +81,75 @@ class LogViewer {
         document.querySelectorAll('.exception-tab-btn').forEach(btn => {
             btn.addEventListener('click', (e) => this.switchExceptionTab(e.target.dataset.tab));
         });
+        this.attachKeyboardShortcuts();
+    }
+
+    attachKeyboardShortcuts() {
+        const isTextField = (el) => {
+            if (!el) return false;
+            const tag = el.tagName;
+            return tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable;
+        };
+        const isModalOpen = () =>
+            document.getElementById('logModal').classList.contains('show') ||
+            document.getElementById('reportsModal').classList.contains('show');
+
+        document.addEventListener('keydown', (e) => {
+            // Esc — close any open modal
+            if (e.key === 'Escape') {
+                if (document.getElementById('logModal').classList.contains('show')) {
+                    this.closeModal();
+                    e.preventDefault();
+                    return;
+                }
+                if (document.getElementById('reportsModal').classList.contains('show')) {
+                    this.closeReports();
+                    e.preventDefault();
+                    return;
+                }
+                // Esc inside the search box clears it
+                const search = document.getElementById('searchBox');
+                if (document.activeElement === search) {
+                    search.value = '';
+                    this.search('');
+                    search.blur();
+                    e.preventDefault();
+                    return;
+                }
+            }
+
+            // Don't intercept when user is typing or modal is open
+            if (isTextField(document.activeElement) || isModalOpen()) return;
+            if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+            // "/" — focus search
+            if (e.key === '/') {
+                e.preventDefault();
+                document.getElementById('searchBox').focus();
+                return;
+            }
+
+            // Arrow keys — paginate (only when there are pages)
+            if (this.filteredLogs.length === 0) return;
+            if (e.key === 'ArrowRight') {
+                this.nextPage();
+                e.preventDefault();
+            } else if (e.key === 'ArrowLeft') {
+                this.prevPage();
+                e.preventDefault();
+            } else if (e.key === 'Home' && e.shiftKey === false) {
+                // Avoid hijacking real Home key on inputs (already filtered above).
+                this.firstPage();
+                e.preventDefault();
+            } else if (e.key === 'End' && e.shiftKey === false) {
+                this.lastPage();
+                e.preventDefault();
+            }
+        });
     }
 
     setTheme(theme) {
-        document.body.className = 'theme-' + theme;
-        document.querySelectorAll('.theme-btn').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.theme === theme);
-        });
-        this.showToast('Theme changed to ' + theme);
+        this.applyTheme(theme, true);
     }
 
     showToast(msg) {
@@ -128,8 +214,6 @@ class LogViewer {
             this.apiByCorrelation = new Map(); // correlationId/requestId -> normalized API path
             let current = null;
             let currentApiCall = null;
-
-            console.log('Starting to parse', lines.length, 'lines...');
 
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
@@ -208,7 +292,6 @@ class LogViewer {
                                 correlationId = apigwMatch[1];
                                 requestId = apigwMatch[2];
                                 message = message.replace(/\["APIGW:[^"]+"\],\s*/, '');
-                                console.log('Found APIGW match:', { correlationId, requestId, message });
                             } else if (emptyBracketMatch) {
                                 message = message.replace(/\[""\],\s*/, '');
                             } else {
@@ -221,16 +304,7 @@ class LogViewer {
                         }
 
                         // Handle API paths and tracking
-                        const pathMatch = message.match(/Path:\s*"?([^"]+)"?/); // Made more flexible for quotes
-                        if (pathMatch) {
-                            console.log('Found Path match:', {
-                                path: pathMatch[1],
-                                message,
-                                correlationId,
-                                requestId,
-                                threadId
-                            });
-                        }
+                        const pathMatch = message.match(/Path:\s*"?([^"]+)"?/);
                         const startMatch = message.match(/Start processing HTTP request "([^"]+)" "([^"]+)"/);
                         const endMatch = message.match(/End processing HTTP request after ([\d.]+)ms - (\d+)/);
 
@@ -250,7 +324,6 @@ class LogViewer {
                                     maxTime: 0,
                                     errors: 0
                                 });
-                                console.log('Created new API stats for:', normalizedPath);
                             }
 
                             currentApiCall = {
@@ -263,11 +336,6 @@ class LogViewer {
                             // exceptions back to the API that handled the request.
                             if (correlationId) this.apiByCorrelation.set(correlationId, normalizedPath);
                             if (requestId) this.apiByCorrelation.set(requestId, normalizedPath);
-                            console.log('Found API call start:', {
-                                path: normalizedPath,
-                                correlationId,
-                                requestId
-                            });
                         } else if ((message.includes('Response') || message.toLowerCase().includes('response')) &&
                             currentApiCall &&
                             (currentApiCall.correlationId === correlationId ||
@@ -292,13 +360,6 @@ class LogViewer {
                             stats.totalTime += duration;
                             stats.minTime = Math.min(stats.minTime, duration);
                             stats.maxTime = Math.max(stats.maxTime, duration);
-                            console.log('Found API call end:', {
-                                path: apiKey,
-                                duration,
-                                totalCalls: stats.count,
-                                correlationId: currentApiCall.correlationId,
-                                requestId: currentApiCall.requestId
-                            });
                             currentApiCall = null;
                         }
 
@@ -424,7 +485,7 @@ class LogViewer {
 
                 this.showToast(formatMsg);
             } else {
-                document.getElementById('logContainer').innerHTML = '<div class="empty-state"><div class="empty-state-icon">⚠️</div><h2>No logs parsed</h2><p>Expected formats:<br/><code>[LEVEL] [ThreadID] Message</code><br/><code>[LEVEL] Message</code></p><p style="font-size: 11px; margin-top: 10px; opacity: 0.7;">Open browser console (F12) for details</p></div>';
+                document.getElementById('logContainer').innerHTML = '<div class="empty-state"><h2>No logs parsed</h2><p>Expected one of these line formats:<br/><code>[LEVEL] [ThreadID] Message</code><br/><code>[LEVEL] Message</code></p><p class="empty-state-hint">Open the browser console (F12) for parser details.</p></div>';
             }
         } catch (error) {
             console.error('Error parsing logs:', error);
@@ -452,7 +513,20 @@ class LogViewer {
     }
 
     setDateTo(v) {
-        this.dateTo = v ? new Date(v) : null;
+        if (!v) {
+            this.dateTo = null;
+        } else {
+            // datetime-local picker drops seconds. If user picked only a date or
+            // a time without seconds, push to end of that minute so entries within
+            // the chosen minute aren't silently excluded.
+            const d = new Date(v);
+            if (v.length <= 10) {
+                d.setHours(23, 59, 59, 999); // date-only -> end of day
+            } else {
+                d.setSeconds(59, 999); // datetime -> end of minute
+            }
+            this.dateTo = d;
+        }
         this.applyFilters();
     }
 
@@ -539,7 +613,7 @@ class LogViewer {
         const container = document.getElementById('logContainer');
         const pagination = document.getElementById('pagination');
         if (!this.filteredLogs.length) {
-            container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><h2>' + (this.logs.length ? 'No matches' : 'No logs loaded') + '</h2></div>';
+            container.innerHTML = '<div class="empty-state"><h2>' + (this.logs.length ? 'No matches' : 'No logs loaded') + '</h2>' + (this.logs.length ? '<p>Adjust filters or search to find entries.</p>' : '') + '</div>';
             pagination.classList.add('hidden');
             document.getElementById('visibleCount').textContent = '0';
             return;
@@ -746,7 +820,7 @@ class LogViewer {
             '<div class="log-meta">' +
             '<span>Thread: ' + this.escape(threadDisplay) + '</span>' +
             '<span>' + log.message.length + ' chars</span>' +
-            (log.format === 'format2' ? '<span title="' + this.escape(log.correlationId) + '">📍 Correlation ID</span>' : '') +
+            (log.format === 'format2' && log.correlationId ? '<span title="' + this.escape(log.correlationId) + '">Correlation</span>' : '') +
             '</div>' +
             (log.exception.trim() ? '<div class="log-exception">' + exc + '</div>' : '') +
             '</div>';
@@ -886,7 +960,6 @@ class LogViewer {
         if (fileList) {
             fileList.innerHTML = this.loadedFileNames.map(name =>
                 `<div class="file-item" title="${this.escape(name)}">
-                    <span class="file-icon">📄</span>
                     <span class="file-name">${this.escape(name)}</span>
                 </div>`
             ).join('');
@@ -904,12 +977,15 @@ class LogViewer {
         this.currentPage = 1;
         this.currentModalLog = null;
         this.apiCalls = new Map();
+        this.innerApiCalls = new Map();
         this.exceptions = new Map();
+        this.exceptionResponses = null;
+        this.apiByCorrelation = new Map();
         document.getElementById('searchBox').value = '';
         document.getElementById('fileInput').value = '';
         document.getElementById('dateFrom').value = '';
         document.getElementById('dateTo').value = '';
-        document.getElementById('logContainer').innerHTML = '<div class="empty-state"><div class="empty-state-icon">📋</div><h2>No logs loaded</h2><p>Load log files to get started</p></div>';
+        document.getElementById('logContainer').innerHTML = '<div class="empty-state"><h2>No logs loaded</h2><p>Load log files to get started.</p></div>';
         document.getElementById('pagination').classList.add('hidden');
         document.getElementById('fileList').innerHTML = '';
         this.updateStats();
@@ -1498,11 +1574,6 @@ class LogViewer {
                     reasonStats.apis.set(apiPath, (reasonStats.apis.get(apiPath) || 0) + 1);
                 }
             }
-        });
-
-        console.log('Parsed exception responses:', {
-            byType: Array.from(this.exceptionResponses.byType.entries()),
-            byReason: Array.from(this.exceptionResponses.byReason.entries())
         });
     }
 
