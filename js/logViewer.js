@@ -17,6 +17,7 @@ class LogViewer {
         // Sorting state for API Performance table
         this.apiTableSortColumn = 'avgTime'; // Default sort column
         this.apiTableSortDirection = 'desc'; // 'asc' or 'desc'
+        this.hourFilter = null; // 0..23 to filter to a single hour-of-day bucket
         this.STORAGE_KEY_THEME = 'logViewer.theme';
         this.init();
         this.restoreTheme();
@@ -165,6 +166,8 @@ class LogViewer {
             document.getElementById('dateTo').value = to;
             this.setDateTo(to);
         }
+        const hour = parseInt(params.get('h'), 10);
+        if (!isNaN(hour) && hour >= 0 && hour <= 23) this.hourFilter = hour;
         const page = parseInt(params.get('p'), 10);
         if (!isNaN(page) && page > 0) this.currentPage = page;
         if (this.logs.length) {
@@ -182,6 +185,7 @@ class LogViewer {
         const toInput = document.getElementById('dateTo').value;
         if (fromInput) params.set('from', fromInput);
         if (toInput) params.set('to', toInput);
+        if (this.hourFilter !== null) params.set('h', String(this.hourFilter));
         if (this.currentPage > 1) params.set('p', String(this.currentPage));
         const next = params.toString();
         const target = next ? '#' + next : window.location.pathname + window.location.search;
@@ -695,6 +699,7 @@ class LogViewer {
         this.dateFrom = this.dateTo = null;
         document.getElementById('dateFrom').value = '';
         document.getElementById('dateTo').value = '';
+        this.hourFilter = null;
         this.filters = { debug: true, information: true, warning: true, error: true };
         document.querySelectorAll('.filter-btn').forEach(btn => {
             btn.classList.add('active');
@@ -710,6 +715,7 @@ class LogViewer {
             if (!this.filters[log.level]) return false;
             if (this.dateFrom && log.date < this.dateFrom) return false;
             if (this.dateTo && log.date > this.dateTo) return false;
+            if (this.hourFilter !== null && log.date.getHours() !== this.hourFilter) return false;
             if (this.searchQuery) {
                 const txt = (log.message + ' ' + log.exception).toLowerCase();
                 if (!txt.includes(this.searchQuery)) return false;
@@ -761,6 +767,13 @@ class LogViewer {
                 value: document.getElementById('dateTo').value || this.dateTo.toISOString().slice(0, 16)
             });
         }
+        if (this.hourFilter !== null) {
+            chips.push({
+                key: 'hour',
+                label: 'Hour',
+                value: String(this.hourFilter).padStart(2, '0') + ':00'
+            });
+        }
 
         if (chips.length === 0) {
             strip.classList.add('hidden');
@@ -802,6 +815,9 @@ class LogViewer {
             case 'to':
                 this.dateTo = null;
                 document.getElementById('dateTo').value = '';
+                break;
+            case 'hour':
+                this.hourFilter = null;
                 break;
         }
         this.currentPage = 1;
@@ -1138,17 +1154,46 @@ class LogViewer {
         return normalized;
     }
 
+    /**
+     * Collapse identifier-like substrings to placeholders so reasons that
+     * differ only by id/email/timestamp group together. Order matters —
+     * specific patterns first, then generic numeric fallback.
+     */
     normalizeExceptionMessage(message) {
-        // Replace transaction numbers and reference numbers with {id} placeholder
-        // Examples:
+        if (!message) return message;
+        let n = String(message);
 
-        // Replace alphanumeric codes after "No." pattern (handles AL6351, EXP123, etc.)
-        let normalized = message.replace(/\bNo\.\s+[A-Z0-9]+/gi, 'No. {id}');
+        // GUIDs / UUIDs (hex, 8-4-4-4-12).
+        n = n.replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '{id}');
 
-        // Replace numeric sequences (any continuous digits)
-        normalized = normalized.replace(/\b\d+\b/g, '{id}');
+        // ISO 8601 timestamps (with optional fractional seconds and tz).
+        n = n.replace(/\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b/g, '{ts}');
 
-        return normalized;
+        // Email addresses.
+        n = n.replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, '{email}');
+
+        // Hyphen-separated uppercase codes (ORD-2024-001, INV-12345-A).
+        n = n.replace(/\b[A-Z]{2,}(?:-[A-Z0-9]+)+\b/g, '{id}');
+
+        // Bare alphanumeric IDs — uppercase letters + digits in either order,
+        // 4+ chars (AL6351, EXP123, 1234ABC).
+        n = n.replace(/\b(?:[A-Z]{2,}\d{2,}|\d{2,}[A-Z]{2,})\b/g, '{id}');
+
+        // Quoted values (capped so we don't swallow whole sentences).
+        n = n.replace(/'([^'\n]{1,60})'/g, "'{val}'");
+        n = n.replace(/"([^"\n]{1,60})"/g, '"{val}"');
+
+        // Hex blobs of 6+ chars (e.g. partial hashes, request ids).
+        n = n.replace(/\b[0-9a-f]{6,}\b/gi, '{hex}');
+
+        // Numeric sequences (2+ digits — avoids replacing isolated "1" / "0"
+        // which often have semantic meaning).
+        n = n.replace(/\b\d{2,}\b/g, '{id}');
+
+        // Tidy whitespace and trim trailing punctuation.
+        n = n.replace(/\s{2,}/g, ' ').trim().replace(/[.,;:\s]+$/, '');
+
+        return n;
     }
 
     escape(txt) {
@@ -1280,6 +1325,7 @@ class LogViewer {
         this.exceptions = new Map();
         this.exceptionResponses = null;
         this.apiByCorrelation = new Map();
+        this.hourFilter = null;
         document.getElementById('searchBox').value = '';
         document.getElementById('fileInput').value = '';
         document.getElementById('dateFrom').value = '';
@@ -1396,11 +1442,36 @@ class LogViewer {
                 this.toggleExceptionDetail(expandBtn);
                 return;
             }
+            // Hourly bar → filter by hour-of-day.
+            const hourBar = e.target.closest('[data-hour]');
+            if (hourBar) {
+                this.filterByHour(parseInt(hourBar.dataset.hour, 10));
+                return;
+            }
             if (e.target.closest('th')) return;
             const row = e.target.closest('[data-filter]');
             if (!row) return;
             this.filterByText(row.dataset.filter);
         });
+        // Keyboard: Enter/Space on focused hour bar triggers the filter.
+        reportsContent.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            const hourBar = e.target.closest('[data-hour]');
+            if (hourBar) {
+                e.preventDefault();
+                this.filterByHour(parseInt(hourBar.dataset.hour, 10));
+            }
+        });
+    }
+
+    /** Filter to logs whose timestamp hour-of-day matches `hour` (0..23). */
+    filterByHour(hour) {
+        if (isNaN(hour) || hour < 0 || hour > 23) return;
+        this.hourFilter = hour;
+        this.currentPage = 1;
+        this.applyFilters();
+        this.closeReports();
+        this.showToast('Filtered to ' + String(hour).padStart(2, '0') + ':00 hour');
     }
 
     /**
@@ -1874,7 +1945,10 @@ class LogViewer {
         for (let h = 0; h < 24; h++) {
             const count = hourCounts[h];
             const heightPct = (count / max) * 100;
-            html += '<div class="timeline-bar-container" title="' + String(h).padStart(2, '0') + ':00 — ' + count + ' entries">';
+            const interactive = count > 0;
+            html += '<div class="timeline-bar-container' + (interactive ? ' hour-bar' : '') + '"'
+                + (interactive ? ' data-hour="' + h + '" role="button" tabindex="0"' : '')
+                + ' title="' + String(h).padStart(2, '0') + ':00 — ' + count + ' entries' + (interactive ? ' (click to filter)' : '') + '">';
             html += '<div class="timeline-bar" style="height:' + heightPct.toFixed(1) + '%"></div>';
             html += '<div class="timeline-label">' + String(h).padStart(2, '0') + '</div>';
             html += '</div>';
@@ -2016,22 +2090,15 @@ class LogViewer {
     }
 
     switchExceptionTab(tab) {
-        // Update button states
         document.querySelectorAll('.exception-tab-btn').forEach(btn => {
-            btn.classList.remove('active');
-            if (btn.dataset.tab === tab) {
-                btn.classList.add('active');
-            }
+            btn.classList.toggle('active', btn.dataset.tab === tab);
         });
-
-        // Update content visibility
-        if (tab === 'by-type') {
-            document.getElementById('exceptionByType').classList.add('active');
-            document.getElementById('exceptionByReason').classList.remove('active');
-        } else if (tab === 'by-reason') {
-            document.getElementById('exceptionByType').classList.remove('active');
-            document.getElementById('exceptionByReason').classList.add('active');
-        }
+        // Toggle the .hidden utility class — that's what controls panel
+        // visibility (display: none !important wins over any .active style).
+        const byType = document.getElementById('exceptionByType');
+        const byReason = document.getElementById('exceptionByReason');
+        if (byType) byType.classList.toggle('hidden', tab !== 'by-type');
+        if (byReason) byReason.classList.toggle('hidden', tab !== 'by-reason');
     }
 
     exportReport() {

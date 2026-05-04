@@ -1112,10 +1112,15 @@ body.theme-blue .loader-overlay { background: rgba(8, 22, 37, 0.78); }
     align-items: center;
     gap: 4px;
     min-height: 100%;
-    cursor: pointer;
     transition: opacity var(--transition);
 }
-.timeline-bar-container:hover { opacity: 0.7; }
+.timeline-bar-container.hour-bar { cursor: pointer; }
+.timeline-bar-container.hour-bar:hover .timeline-bar { background: var(--accent); }
+.timeline-bar-container.hour-bar:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-xs);
+}
 .timeline-bar {
     width: 100%;
     background: var(--ink);
@@ -1124,7 +1129,6 @@ body.theme-blue .loader-overlay { background: rgba(8, 22, 37, 0.78); }
     transition: background var(--transition);
     display: block;
 }
-.timeline-bar-container:hover .timeline-bar { background: var(--accent); }
 .timeline-label {
     font-family: var(--font-mono);
     font-size: 9px;
