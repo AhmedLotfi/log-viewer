@@ -717,7 +717,95 @@ class LogViewer {
             return true;
         });
         this.render();
+        this._renderFilterChips();
         if (typeof this.writeUrlState === 'function') this.writeUrlState();
+    }
+
+    /**
+     * Build the active-filter chip strip above the log container. Visible only
+     * when at least one filter is active. Each chip's × clears just that filter.
+     */
+    _renderFilterChips() {
+        const strip = document.getElementById('filterChips');
+        if (!strip) return;
+
+        const chips = [];
+        if (this.searchQuery) {
+            chips.push({
+                key: 'search',
+                label: 'Search',
+                value: this.searchQuery
+            });
+        }
+        const offLevels = ['debug', 'information', 'warning', 'error']
+            .filter(l => !this.filters[l])
+            .map(l => ({ debug: 'DBG', information: 'INF', warning: 'WRN', error: 'ERR' }[l]));
+        if (offLevels.length > 0) {
+            chips.push({
+                key: 'levels',
+                label: 'Hidden',
+                value: offLevels.join(', ')
+            });
+        }
+        if (this.dateFrom) {
+            chips.push({
+                key: 'from',
+                label: 'From',
+                value: document.getElementById('dateFrom').value || this.dateFrom.toISOString().slice(0, 16)
+            });
+        }
+        if (this.dateTo) {
+            chips.push({
+                key: 'to',
+                label: 'To',
+                value: document.getElementById('dateTo').value || this.dateTo.toISOString().slice(0, 16)
+            });
+        }
+
+        if (chips.length === 0) {
+            strip.classList.add('hidden');
+            strip.innerHTML = '';
+            return;
+        }
+
+        strip.classList.remove('hidden');
+        strip.innerHTML = chips.map(c =>
+            '<span class="filter-chip">'
+                + '<span class="filter-chip__label">' + this.escape(c.label) + '</span>'
+                + '<span class="filter-chip__value">' + this.escape(c.value) + '</span>'
+                + '<button type="button" class="filter-chip__clear" data-clear="' + c.key + '" aria-label="Clear ' + this.escape(c.label) + ' filter">×</button>'
+            + '</span>'
+        ).join('');
+
+        strip.querySelectorAll('.filter-chip__clear').forEach(btn => {
+            btn.addEventListener('click', () => this._clearChip(btn.dataset.clear));
+        });
+    }
+
+    _clearChip(key) {
+        switch (key) {
+            case 'search':
+                this.searchQuery = '';
+                document.getElementById('searchBox').value = '';
+                break;
+            case 'levels':
+                this.filters = { debug: true, information: true, warning: true, error: true };
+                document.querySelectorAll('.filter-btn').forEach(btn => {
+                    btn.classList.add('active');
+                    btn.setAttribute('aria-pressed', 'true');
+                });
+                break;
+            case 'from':
+                this.dateFrom = null;
+                document.getElementById('dateFrom').value = '';
+                break;
+            case 'to':
+                this.dateTo = null;
+                document.getElementById('dateTo').value = '';
+                break;
+        }
+        this.currentPage = 1;
+        this.applyFilters();
     }
 
     changePageSize(size) {
@@ -1199,6 +1287,8 @@ class LogViewer {
         document.getElementById('logContainer').innerHTML = '<div class="empty-state"><h2>No logs loaded</h2><p>Load log files to get started.</p></div>';
         document.getElementById('pagination').classList.add('hidden');
         document.getElementById('fileList').innerHTML = '';
+        this._sortCache = null;
+        this._renderFilterChips();
         this.updateStats();
         this.showToast('All logs cleared');
     }
@@ -1580,13 +1670,7 @@ class LogViewer {
             const { path, stats, avgTime, errorRate } = e;
             const statusClass = errorRate > 10 ? 'api-status-poor' : errorRate > 0 ? 'api-status-fair' : 'api-status-good';
             const successCallRate = ((stats.count - stats.errors) / stats.count) * 100;
-            const statusCodeStr = stats.statusCodes && stats.statusCodes.size > 0
-                ? Array.from(stats.statusCodes.entries())
-                    .sort((a, b) => b[1] - a[1])
-                    .slice(0, 3)
-                    .map(([code, count]) => code + ':' + count)
-                    .join(' ')
-                : '—';
+            const statusCodeStr = this._renderStatusCodes(stats.statusCodes, 3);
 
             html += '<tr class="api-row report-row-link ' + statusClass + '" data-filter="' + this.escape(path) + '" title="Click to filter logs by this endpoint">';
             html += '<td class="report-code">' + this.escape(path) + '</td>';
@@ -1673,13 +1757,7 @@ class LogViewer {
             const { path, stats, avgTime } = e;
             const minTime = stats.minTime === Infinity ? 0 : stats.minTime;
             const successCallRate = ((stats.count - stats.errors) / stats.count) * 100;
-            const statusCodeStr = stats.statusCodes && stats.statusCodes.size > 0
-                ? Array.from(stats.statusCodes.entries())
-                    .sort((a, b) => b[1] - a[1])
-                    .slice(0, 2)
-                    .map(([code, count]) => code + ':' + count)
-                    .join(' ')
-                : '—';
+            const statusCodeStr = this._renderStatusCodes(stats.statusCodes, 3);
 
             html += '<tr class="internal-http-row report-row-link" data-filter="' + this.escape(path) + '" title="Click to filter logs by this call">';
             html += '<td class="report-code">' + this.escape(path) + '</td>';
@@ -1842,6 +1920,33 @@ class LogViewer {
             '<dt>' + label + '</dt>' +
             '<dd><span class="insight-target">' + target + '</span><span class="insight-metric">' + value + '</span></dd>' +
             '</div>';
+    }
+
+    /**
+     * Render a Map<statusCode, count> as a row of color-coded chips.
+     * 2xx success / 3xx neutral / 4xx warning / 5xx danger.
+     */
+    _renderStatusCodes(statusCodes, limit) {
+        if (!statusCodes || statusCodes.size === 0) return '<span class="status-code-empty">—</span>';
+        const top = Array.from(statusCodes.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, limit || 3);
+        return top.map(([code, count]) => {
+            const cls = this._statusCodeClass(code);
+            return '<span class="status-code-chip ' + cls + '">'
+                + '<span class="status-code">' + this.escape(String(code)) + '</span>'
+                + '<span class="status-code-count">' + count + '</span>'
+                + '</span>';
+        }).join(' ');
+    }
+
+    _statusCodeClass(code) {
+        const s = String(code);
+        if (s.startsWith('2')) return 'status-code-2xx';
+        if (s.startsWith('3')) return 'status-code-3xx';
+        if (s.startsWith('4')) return 'status-code-4xx';
+        if (s.startsWith('5')) return 'status-code-5xx';
+        return 'status-code-other';
     }
 
     parseExceptionResponses() {
