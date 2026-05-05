@@ -16,7 +16,7 @@
     <div class="container">
         <div class="header">
             <h1>
-                <span>Log Viewer Pro</span>
+                <span>Log Viewer Pro<span class="busy-dot" id="busyDot" hidden aria-live="polite" aria-label="Working"></span></span>
                 <div class="theme-toggle" role="group" aria-label="Theme">
                     <button type="button" class="theme-btn light active" data-theme="light" title="Light theme" aria-label="Light theme" aria-pressed="true"></button>
                     <button type="button" class="theme-btn dark" data-theme="dark" title="Dark theme" aria-label="Dark theme" aria-pressed="false"></button>
@@ -69,6 +69,10 @@
                         <option value="500">500/page</option>
                     </select>
                     <button type="button" class="btn btn-secondary hidden" id="tailBtn" title="Watch a file for new entries">Tail</button>
+                    <select id="exportFormat" class="date-input" aria-label="Export format" title="Export format">
+                        <option value="txt">TXT</option>
+                        <option value="csv">CSV</option>
+                    </select>
                     <button type="button" class="btn btn-success" id="exportBtn">Export</button>
                     <button type="button" class="btn btn-danger" id="clearBtn">Clear</button>
                     <button type="button" class="btn btn-primary" id="reportsBtn">Reports</button>
@@ -201,9 +205,62 @@
     <div class="modal" id="helpModal" role="dialog" aria-modal="true" aria-labelledby="helpModalTitle" aria-hidden="true">
         <div class="modal-content modal-help">
             <div class="modal-header">
-                <h2 class="modal-title" id="helpModalTitle">Keyboard shortcuts</h2>
+                <h2 class="modal-title" id="helpModalTitle">Help &amp; usage</h2>
                 <button type="button" class="modal-close" id="helpClose" aria-label="Close">&times;</button>
             </div>
+
+            <section class="help-section">
+                <h3 class="help-section__title">Loading logs</h3>
+                <ul class="help-list">
+                    <li><strong>Click</strong> <em>Load Log Files</em> to pick one or more <code>.txt</code> / <code>.log</code> files.</li>
+                    <li><strong>Drag and drop</strong> files anywhere on the page.</li>
+                    <li><strong>Tail</strong> picks one file and re-reads it every 2 s; the page offers to resume after a refresh.</li>
+                    <li>Single files larger than 10 MB are streamed in chunks instead of loaded as one string.</li>
+                    <li>Both Serilog bracketed text and JSON-line (CLEF / generic) formats are detected automatically.</li>
+                </ul>
+            </section>
+
+            <section class="help-section">
+                <h3 class="help-section__title">Searching &amp; filtering</h3>
+                <ul class="help-list">
+                    <li>Type in the search box to filter by message + exception text. Matches are highlighted in the table.</li>
+                    <li>The three small buttons after the search field toggle <strong>case-sensitive</strong> (<code>Aa</code>), <strong>whole-word</strong> (<code>W</code>), and <strong>regex</strong> (<code>.*</code>) modes. The box turns red on an invalid regex.</li>
+                    <li>Click the level pills (<code>DBG</code>, <code>INF</code>, <code>WRN</code>, <code>ERR</code>) to toggle each level off and on.</li>
+                    <li>Use <em>From</em> / <em>To</em> to bound the date range. Date-only entries are normalized to start/end of day.</li>
+                    <li>Active filters show as removable chips just above the table. <em>Reset filters</em> clears all of them at once.</li>
+                </ul>
+            </section>
+
+            <section class="help-section">
+                <h3 class="help-section__title">Inspecting an entry</h3>
+                <ul class="help-list">
+                    <li>Click <strong>▸</strong> on any row to expand it inline — full message, exception, correlation, source.</li>
+                    <li>Click anywhere else on the row to open the detail modal with a <em>Show trace</em> button (filters to all logs sharing the same correlation).</li>
+                    <li><em>Collapse repeats</em> groups adjacent identical messages into one row with a <code>×N</code> badge.</li>
+                </ul>
+            </section>
+
+            <section class="help-section">
+                <h3 class="help-section__title">Reports</h3>
+                <ul class="help-list">
+                    <li>Open <strong>Reports</strong> for log distribution, API performance, internal HTTP, exceptions, and activity.</li>
+                    <li>Most rows are clickable — they cross-link to a filtered view of the matching log entries.</li>
+                    <li>The <strong>▸</strong> on each exception row reveals all reasons + APIs that produced that type/reason.</li>
+                    <li>Hour bars in the Activity timeline are clickable — they filter to that hour-of-day across all dates.</li>
+                    <li>Loading two or more files shows a <em>Files compared</em> table with side-by-side metrics per file.</li>
+                </ul>
+            </section>
+
+            <section class="help-section">
+                <h3 class="help-section__title">Saved views &amp; sharing</h3>
+                <ul class="help-list">
+                    <li><em>Views</em> &rarr; <em>Save current view…</em> stores the current search, level filters, dates, hour, sort, and collapse toggle under a name (in <code>localStorage</code>).</li>
+                    <li>Filter state is also serialized to the URL hash, so reloading or copying the URL preserves the view.</li>
+                    <li><em>Export</em> downloads the currently-filtered logs as plain text. <em>Export Report</em> dumps the full analytics as JSON.</li>
+                </ul>
+            </section>
+
+            <h3 class="help-section__title">Keyboard shortcuts</h3>
             <table class="help-table">
                 <tbody>
                     <tr class="help-table__group"><th colspan="2">Search &amp; navigation</th></tr>
@@ -218,6 +275,7 @@
                     <tr><td><kbd>Enter</kbd> <kbd>Space</kbd></td><td>Activate focused control (sortable headers, hour bars, expand chevrons)</td></tr>
                 </tbody>
             </table>
+
             <div class="modal-actions">
                 <button type="button" class="btn btn-secondary" id="helpCloseBtn">Close</button>
             </div>

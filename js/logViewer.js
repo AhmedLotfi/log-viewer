@@ -94,6 +94,11 @@ class LogViewer {
         document.getElementById('helpModal').addEventListener('click', (e) => {
             if (e.target.id === 'helpModal') this.closeHelp();
         });
+        // Report-modal click + keyboard delegation. Registered once here so we
+        // don't accumulate handlers each time generateReports() re-renders —
+        // duplicates would cancel each other out (e.g. expand+collapse on a
+        // single click), making the chevrons appear broken.
+        this._attachReportsDelegation();
         document.querySelectorAll('.filter-btn').forEach(btn => {
             btn.addEventListener('click', () => this.toggleFilter(btn));
         });
@@ -314,6 +319,15 @@ class LogViewer {
                     this._setTailNewCount(0);
                 } else {
                     this._setTailNewCount((this._tailNewCount || 0) + newCount);
+                }
+                // If the reports modal is open, surface a refresh notice
+                // instead of auto-regenerating (which would lose scroll
+                // position and expanded exception rows).
+                const reportsOpen = document.getElementById('reportsModal')
+                    && document.getElementById('reportsModal').classList.contains('show');
+                if (reportsOpen) {
+                    this._reportsStaleCount = (this._reportsStaleCount || 0) + newCount;
+                    this._showReportsStaleNotice();
                 }
             }
         } catch (e) {
@@ -594,9 +608,9 @@ class LogViewer {
         } catch (e) { /* storage blocked */ }
     }
 
-    saveCurrentView() {
-        const name = (prompt('Name this view:', '') || '').trim();
-        if (!name) return;
+    saveCurrentView(rawName) {
+        const name = (rawName || '').trim();
+        if (!name) return false;
         const views = this._loadViews();
         const state = {
             name,
@@ -615,6 +629,7 @@ class LogViewer {
         this._writeViews(views);
         this.showToast('View saved: ' + name);
         this._renderViewsPopover();
+        return true;
     }
 
     applyView(name) {
@@ -722,11 +737,12 @@ class LogViewer {
     _renderViewsPopover() {
         const pop = document.getElementById('viewsPopover');
         const views = this._loadViews();
-        let html = '<div class="views-popover__head">';
-        html += '<button type="button" class="btn btn-secondary views-popover__save">Save current view&hellip;</button>';
-        html += '</div>';
+        let html = '<form class="views-popover__form" id="viewsSaveForm">';
+        html += '<input type="text" class="views-popover__input" placeholder="Name this view" maxlength="60" aria-label="View name">';
+        html += '<button type="submit" class="btn btn-primary views-popover__save">Save</button>';
+        html += '</form>';
         if (views.length === 0) {
-            html += '<p class="views-popover__empty">No saved views yet. Save your current filters to bookmark them.</p>';
+            html += '<p class="views-popover__empty">No saved views yet. Type a name above to bookmark the current filters.</p>';
         } else {
             html += '<ul class="views-popover__list">';
             for (const v of views) {
@@ -738,8 +754,28 @@ class LogViewer {
             html += '</ul>';
         }
         pop.innerHTML = html;
-        const saveBtn = pop.querySelector('.views-popover__save');
-        if (saveBtn) saveBtn.addEventListener('click', () => this.saveCurrentView());
+
+        const form = pop.querySelector('#viewsSaveForm');
+        const input = pop.querySelector('.views-popover__input');
+        if (form && input) {
+            form.addEventListener('submit', (e) => {
+                e.preventDefault();
+                if (this.saveCurrentView(input.value)) {
+                    input.value = '';
+                }
+            });
+            // Pressing Esc inside the input closes the popover (consistent
+            // with the modal Esc behavior).
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    this.closeViewsPopover();
+                }
+            });
+            // Auto-focus once the popover is on screen.
+            setTimeout(() => input.focus(), 0);
+        }
+
         pop.querySelectorAll('[data-action]').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -757,6 +793,27 @@ class LogViewer {
         toast.textContent = msg;
         toast.classList.add('show');
         setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    /**
+     * Inline busy indicator (small dot in the wordmark) for incidental
+     * background work — report generation, applyFilters on huge sets, etc.
+     * Counter-based so nested jobs work; dot hides only when count returns
+     * to zero. Use the heavy loader-overlay for explicit user-initiated
+     * file/load/export jobs instead.
+     */
+    _jobStart() {
+        this._activeJobs = (this._activeJobs || 0) + 1;
+        const dot = document.getElementById('busyDot');
+        if (dot) dot.hidden = false;
+    }
+
+    _jobEnd() {
+        this._activeJobs = Math.max(0, (this._activeJobs || 1) - 1);
+        if (this._activeJobs === 0) {
+            const dot = document.getElementById('busyDot');
+            if (dot) dot.hidden = true;
+        }
     }
 
     showLoader(text) {
@@ -1417,6 +1474,16 @@ class LogViewer {
             this.showToast('No logs to export');
             return;
         }
+        const fmtEl = document.getElementById('exportFormat');
+        const fmt = (fmtEl && fmtEl.value) || 'txt';
+        if (fmt === 'csv') {
+            this._exportLogsCsv();
+        } else {
+            this._exportLogsTxt();
+        }
+    }
+
+    _exportLogsTxt() {
         this.showLoader('Exporting ' + this.filteredLogs.length + ' logs...');
         setTimeout(() => {
             let txt = '';
@@ -1426,15 +1493,51 @@ class LogViewer {
                 if (log.exception.trim()) txt += log.exception;
             });
             const blob = new Blob([txt], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'logs-' + new Date().toISOString().split('T')[0] + '.txt';
-            a.click();
-            URL.revokeObjectURL(url);
+            this._downloadBlob(blob, 'logs-' + new Date().toISOString().split('T')[0] + '.txt');
             this.hideLoader();
             this.showToast('Exported ' + this.filteredLogs.length + ' logs');
         }, 300);
+    }
+
+    _exportLogsCsv() {
+        this.showLoader('Exporting ' + this.filteredLogs.length + ' logs as CSV...');
+        setTimeout(() => {
+            const esc = this._csvEscape;
+            const rows = ['Timestamp,Level,Thread,Correlation,Source,Message,Exception'];
+            for (const log of this.filteredLogs) {
+                rows.push([
+                    log.timestamp,
+                    log.level,
+                    log.threadId === 'N/A' ? '' : log.threadId,
+                    log.correlationId || '',
+                    log.source || '',
+                    log.message,
+                    (log.exception || '').trim()
+                ].map(esc).join(','));
+            }
+            // Lead with a UTF-8 BOM so Excel renders Unicode characters correctly.
+            const blob = new Blob(['﻿' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+            this._downloadBlob(blob, 'logs-' + new Date().toISOString().split('T')[0] + '.csv');
+            this.hideLoader();
+            this.showToast('Exported ' + this.filteredLogs.length + ' logs (CSV)');
+        }, 300);
+    }
+
+    /** RFC 4180 escape: quote values containing comma, quote, CR, or LF. */
+    _csvEscape(value) {
+        if (value == null) return '';
+        const s = String(value);
+        if (/[",\r\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+        return s;
+    }
+
+    _downloadBlob(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
     }
 
     render() {
@@ -1721,11 +1824,10 @@ class LogViewer {
                     + '">×' + (log.groupCount > 99 ? '99+' : log.groupCount) + '</span>'
                 : '';
             const expanded = this.expandedRows.has(log.id);
-            const expandIcon = expanded ? '▾' : '▸';
             const rowCls = 'log-row ' + levelClass + (expanded ? ' is-expanded' : '');
 
             html += '<tr class="' + rowCls + '" data-log-id="' + log.id + '">' +
-                '<td class="col-expand"><button type="button" class="row-expand' + (expanded ? ' expanded' : '') + '" aria-label="Toggle details" aria-expanded="' + expanded + '">' + expandIcon + '</button></td>' +
+                '<td class="col-expand"><button type="button" class="row-expand' + (expanded ? ' expanded' : '') + '" aria-label="Toggle details" aria-expanded="' + expanded + '">▸</button></td>' +
                 '<td class="col-timestamp">' + this.escape(log.timestamp) + '</td>' +
                 '<td class="col-level"><span class="level-badge ' + levelClass + '">' + log.level.toUpperCase() + '</span></td>' +
                 '<td class="col-message">' + this.highlight(msgPreview) + repeatBadge + '</td>' +
@@ -2020,18 +2122,69 @@ class LogViewer {
         const modal = document.getElementById('reportsModal');
         modal.classList.add('show');
         modal.setAttribute('aria-hidden', 'false');
-        this.generateReports();
-        setTimeout(() => document.getElementById('reportsClose').focus(), 0);
+        // Reset stale-counter on open — generateReports below builds fresh data.
+        this._reportsStaleCount = 0;
+        const oldNotice = document.getElementById('reportsStaleNotice');
+        if (oldNotice) oldNotice.remove();
+        // Show a "Working…" placeholder immediately and defer the heavy
+        // generateReports work to the next frame so the modal can animate
+        // open before we block the main thread.
+        const content = document.getElementById('reportsContent');
+        if (content) {
+            content.innerHTML = '<div class="empty-state"><h2>Working&hellip;</h2><p>Building reports.</p></div>';
+        }
+        this._jobStart();
+        requestAnimationFrame(() => {
+            try { this.generateReports(); }
+            finally { this._jobEnd(); }
+            setTimeout(() => document.getElementById('reportsClose').focus(), 0);
+        });
     }
 
     closeReports() {
         const modal = document.getElementById('reportsModal');
         modal.classList.remove('show');
         modal.setAttribute('aria-hidden', 'true');
+        // Drop the stale notice + counter so the next open is clean.
+        this._reportsStaleCount = 0;
+        const notice = document.getElementById('reportsStaleNotice');
+        if (notice) notice.remove();
         if (this._lastFocus && typeof this._lastFocus.focus === 'function') {
             this._lastFocus.focus();
             this._lastFocus = null;
         }
+    }
+
+    /**
+     * Show or update a "N new — [Refresh]" banner at the top of the reports
+     * modal when tail-mode polls bring in fresh data while the modal is open.
+     * Lazy-creates the DOM element so existing report content isn't disturbed.
+     */
+    _showReportsStaleNotice() {
+        const reportsContent = document.getElementById('reportsContent');
+        if (!reportsContent) return;
+        let banner = document.getElementById('reportsStaleNotice');
+        if (!banner) {
+            banner = document.createElement('div');
+            banner.id = 'reportsStaleNotice';
+            banner.className = 'reports-stale';
+            banner.innerHTML =
+                '<span class="reports-stale__text"></span>'
+                + '<button type="button" class="btn btn-primary reports-stale__refresh">Refresh</button>';
+            reportsContent.parentNode.insertBefore(banner, reportsContent);
+            banner.querySelector('.reports-stale__refresh').addEventListener('click', () => {
+                this._reportsStaleCount = 0;
+                banner.remove();
+                this._jobStart();
+                requestAnimationFrame(() => {
+                    try { this.generateReports(); }
+                    finally { this._jobEnd(); }
+                });
+            });
+        }
+        const n = this._reportsStaleCount || 0;
+        banner.querySelector('.reports-stale__text').textContent =
+            n + ' new ' + (n === 1 ? 'entry' : 'entries') + ' since last refresh';
     }
 
     showHelp() {
@@ -2123,17 +2276,30 @@ class LogViewer {
 
         document.getElementById('reportsContent').innerHTML = html;
 
-        // Re-attach event listeners
+        // Re-attach per-render event listeners (these target elements that
+        // are recreated on every render, so they need fresh handlers).
         document.querySelectorAll('.exception-tab-btn').forEach(btn => {
             btn.addEventListener('click', (e) => this.switchExceptionTab(e.target.dataset.tab));
         });
         document.querySelectorAll('.api-performance-table .sortable-col').forEach(th => {
             th.addEventListener('click', () => this.handleApiTableSort(th.dataset.sortColumn));
         });
+        // The reportsContent click/keydown delegation is bound ONCE at init
+        // (see _attachReportsDelegation) — re-binding here would accumulate
+        // duplicate handlers and cancel out single-click toggles.
+    }
 
-        // Click delegation inside the reports modal: row-expand buttons toggle
-        // detail rows; otherwise rows with data-filter cross-link to the log view.
+    /**
+     * Bind the click + keyboard delegation on the reports modal content
+     * exactly once (at construction). Because reportsContent itself persists
+     * across re-renders — only its innerHTML changes — event delegation works
+     * for all the dynamically generated controls inside it.
+     */
+    _attachReportsDelegation() {
         const reportsContent = document.getElementById('reportsContent');
+        if (!reportsContent || reportsContent._delegationBound) return;
+        reportsContent._delegationBound = true;
+
         reportsContent.addEventListener('click', (e) => {
             const expandBtn = e.target.closest('.row-expand');
             if (expandBtn) {
@@ -2141,13 +2307,11 @@ class LogViewer {
                 this.toggleExceptionDetail(expandBtn);
                 return;
             }
-            // Exception table sort headers.
             const excSort = e.target.closest('[data-exc-sort]');
             if (excSort) {
                 this.handleExceptionSort(excSort.dataset.excSort);
                 return;
             }
-            // Hourly bar → filter by hour-of-day.
             const hourBar = e.target.closest('[data-hour]');
             if (hourBar) {
                 this.filterByHour(parseInt(hourBar.dataset.hour, 10));
@@ -2158,7 +2322,6 @@ class LogViewer {
             if (!row) return;
             this.filterByText(row.dataset.filter);
         });
-        // Keyboard: Enter/Space on focused hour bar or exception sort header.
         reportsContent.addEventListener('keydown', (e) => {
             if (e.key !== 'Enter' && e.key !== ' ') return;
             const hourBar = e.target.closest('[data-hour]');
@@ -2197,7 +2360,6 @@ class LogViewer {
         if (next && next.classList.contains('exception-detail-row')) {
             next.remove();
             button.classList.remove('expanded');
-            button.textContent = '▸';
             return;
         }
 
@@ -2218,7 +2380,6 @@ class LogViewer {
         detail.innerHTML = '<td colspan="' + colspan + '">' + this._renderExceptionDetail(kind, stats) + '</td>';
         row.parentNode.insertBefore(detail, next);
         button.classList.add('expanded');
-        button.textContent = '▾';
     }
 
     _renderExceptionDetail(kind, stats) {

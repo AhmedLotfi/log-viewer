@@ -316,7 +316,7 @@
     transition: background var(--transition), color var(--transition), transform var(--transition);
 }
 .row-expand:hover { background: var(--bg-soft); color: var(--ink); }
-.row-expand.expanded { color: var(--accent); }
+.row-expand.expanded { color: var(--accent); transform: rotate(90deg); }
 
 .exception-detail-row td {
     background: var(--bg-soft);

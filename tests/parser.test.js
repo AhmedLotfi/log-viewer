@@ -17,8 +17,24 @@ const {
     healthClass,
     detectJsonLines,
     mapJsonLevel,
-    parseJsonLine
+    parseJsonLine,
+    parseTextChunk,
+    parseTextChunkInto,
+    flushPartialChunk,
+    parseJsonChunk,
+    parseAll
 } = require('../js/parser.js');
+
+// Helpers shared by parseTextChunk / parseAll tests.
+function makeState() {
+    return {
+        logs: [],
+        apiCalls: new Map(),
+        innerApiCalls: new Map(),
+        apiByCorrelation: new Map(),
+        currentInnerCall: null
+    };
+}
 
 // ---------- normalizeApiPath ----------
 
@@ -338,4 +354,206 @@ test('parseJsonLine: numeric ids stringified', () => {
     const log = parseJsonLine('{"@t":"2024-01-15T10:30:45Z","@m":"x","correlationId":12345,"ThreadId":7}');
     assert.equal(log.correlationId, '12345');
     assert.equal(log.threadId, '7');
+});
+
+// ---------- parseTextChunk ----------
+
+test('parseTextChunk: single format1 line produces one log', () => {
+    const state = makeState();
+    parseTextChunk('2024-01-15 10:30:45.123 +00:00 [INF] [Worker-1] Hello world', 'a.log', state);
+    assert.equal(state.logs.length, 1);
+    const log = state.logs[0];
+    assert.equal(log.level, 'information');
+    assert.equal(log.threadId, 'Worker-1');
+    assert.equal(log.message, 'Hello world');
+    assert.equal(log.format, 'format1');
+    assert.equal(log.source, 'a.log');
+    assert.equal(log.exception, '');
+});
+
+test('parseTextChunk: format2 line (no thread bracket) sets threadId to N/A', () => {
+    const state = makeState();
+    parseTextChunk('2024-01-15 10:30:45.123 +00:00 [WRN] Something happened', 'b.log', state);
+    assert.equal(state.logs.length, 1);
+    assert.equal(state.logs[0].level, 'warning');
+    assert.equal(state.logs[0].threadId, 'N/A');
+    assert.equal(state.logs[0].format, 'format2');
+});
+
+test('parseTextChunk: continuation lines append to exception of previous entry', () => {
+    const state = makeState();
+    const content = [
+        '2024-01-15 10:30:45.123 +00:00 [ERR] [Worker-1] Failed',
+        '   at Foo.bar (Foo.cs:42)',
+        '   at Baz.qux (Baz.cs:7)'
+    ].join('\n');
+    parseTextChunk(content, 'a.log', state);
+    assert.equal(state.logs.length, 1);
+    assert.match(state.logs[0].exception, /Foo\.bar/);
+    assert.match(state.logs[0].exception, /Baz\.qux/);
+});
+
+test('parseTextChunk: multiple entries in one chunk', () => {
+    const state = makeState();
+    const content = [
+        '2024-01-15 10:30:45.123 +00:00 [INF] [Worker-1] One',
+        '2024-01-15 10:30:46.000 +00:00 [INF] [Worker-1] Two',
+        '2024-01-15 10:30:47.000 +00:00 [ERR] [Worker-1] Three'
+    ].join('\n');
+    parseTextChunk(content, 'a.log', state);
+    assert.equal(state.logs.length, 3);
+    assert.deepEqual(state.logs.map(l => l.level), ['information', 'information', 'error']);
+});
+
+test('parseTextChunk: stamps source on every log', () => {
+    const state = makeState();
+    const content = [
+        '2024-01-15 10:30:45.123 +00:00 [INF] [t] a',
+        '2024-01-15 10:30:46.000 +00:00 [INF] [t] b'
+    ].join('\n');
+    parseTextChunk(content, 'pod-7.log', state);
+    for (const log of state.logs) assert.equal(log.source, 'pod-7.log');
+});
+
+test('parseTextChunk: empty/blank lines are ignored', () => {
+    const state = makeState();
+    const content = [
+        '',
+        '2024-01-15 10:30:45.123 +00:00 [INF] [t] a',
+        '   ',
+        '2024-01-15 10:30:46.000 +00:00 [INF] [t] b'
+    ].join('\n');
+    parseTextChunk(content, 'a.log', state);
+    assert.equal(state.logs.length, 2);
+});
+
+test('parseTextChunk: APIGW Path line is tracked even without a Response', () => {
+    const state = makeState();
+    parseTextChunk(
+        '2024-01-15 10:30:45.123 +00:00 [INF] [Worker-1] Path: "/api/users/123"',
+        'a.log',
+        state
+    );
+    // 1 log entry for the Path line, normalized API path stored.
+    assert.equal(state.logs.length, 1);
+    assert.ok(state.apiCalls.has('/api/users/{id}'));
+    const stats = state.apiCalls.get('/api/users/{id}');
+    assert.equal(stats.started, 1);
+    assert.equal(stats.count, 0); // no Response yet
+});
+
+test('parseTextChunk: Inner HTTP Start + End populates innerApiCalls', () => {
+    const state = makeState();
+    const content = [
+        '2024-01-15 10:30:45.123 +00:00 [INF] [t] Start processing HTTP request "GET" "https://api.example.com/widgets/42"',
+        '2024-01-15 10:30:45.456 +00:00 [INF] [t] End processing HTTP request after 333ms - 200'
+    ].join('\n');
+    parseTextChunk(content, 'a.log', state);
+    assert.equal(state.innerApiCalls.size, 1);
+    const stats = state.innerApiCalls.get('GET /widgets/42');
+    assert.ok(stats);
+    assert.equal(stats.count, 1);
+    assert.equal(stats.totalTime, 333);
+    assert.equal(stats.errors, 0);
+    assert.equal(stats.statusCodes.get('200'), 1);
+});
+
+test('parseTextChunk: 5xx inner-HTTP status increments errors', () => {
+    const state = makeState();
+    const content = [
+        '2024-01-15 10:30:45.123 +00:00 [INF] [t] Start processing HTTP request "POST" "https://api.example.com/orders"',
+        '2024-01-15 10:30:46.000 +00:00 [INF] [t] End processing HTTP request after 877ms - 503'
+    ].join('\n');
+    parseTextChunk(content, 'a.log', state);
+    const stats = state.innerApiCalls.get('POST /orders');
+    assert.equal(stats.errors, 1);
+});
+
+test('parseTextChunk: 3xx status is NOT counted as an error', () => {
+    const state = makeState();
+    const content = [
+        '2024-01-15 10:30:45.123 +00:00 [INF] [t] Start processing HTTP request "GET" "https://api.example.com/foo"',
+        '2024-01-15 10:30:45.500 +00:00 [INF] [t] End processing HTTP request after 100ms - 304'
+    ].join('\n');
+    parseTextChunk(content, 'a.log', state);
+    const stats = state.innerApiCalls.get('GET /foo');
+    assert.equal(stats.errors, 0);
+});
+
+// ---------- parseTextChunkInto + flushPartialChunk (streaming) ----------
+
+test('streaming: a log entry split across two chunks yields one final log', () => {
+    const state = makeState();
+    state._currentLog = null;
+    state._currentApiCall = null;
+    // Chunk 1 has the timestamped header but no trailing newline before the
+    // next chunk arrives. Chunk 2 has continuation lines (which should be
+    // appended to the carry-over log).
+    parseTextChunkInto('2024-01-15 10:30:45.123 +00:00 [ERR] [t] Boom\n', 'a.log', state);
+    parseTextChunkInto('   at Foo.bar\n   at Baz.qux\n', 'a.log', state);
+    flushPartialChunk(state);
+    assert.equal(state.logs.length, 1);
+    assert.match(state.logs[0].exception, /Foo\.bar/);
+    assert.match(state.logs[0].exception, /Baz\.qux/);
+});
+
+test('streaming: two timestamped entries split across chunks both land', () => {
+    const state = makeState();
+    parseTextChunkInto('2024-01-15 10:30:45.123 +00:00 [INF] [t] one\n', 'a.log', state);
+    parseTextChunkInto('2024-01-15 10:30:46.000 +00:00 [INF] [t] two\n', 'a.log', state);
+    flushPartialChunk(state);
+    assert.equal(state.logs.length, 2);
+    assert.equal(state.logs[0].message, 'one');
+    assert.equal(state.logs[1].message, 'two');
+});
+
+// ---------- parseJsonChunk ----------
+
+test('parseJsonChunk: each valid line becomes a log; invalid lines are skipped', () => {
+    const state = makeState();
+    const content = [
+        '{"@t":"2024-01-15T10:30:45Z","@l":"Information","@m":"hi"}',
+        'this is not JSON',
+        '{"@t":"2024-01-15T10:30:46Z","@l":"Warning","@m":"slow"}',
+        '',
+        '{"@l":"Information","@m":"no timestamp"}'
+    ].join('\n');
+    parseJsonChunk(content, 'a.log', state);
+    assert.equal(state.logs.length, 2);
+    assert.equal(state.logs[0].message, 'hi');
+    assert.equal(state.logs[1].message, 'slow');
+});
+
+test('parseJsonChunk: stamps source on every log', () => {
+    const state = makeState();
+    parseJsonChunk('{"@t":"2024-01-15T10:30:45Z","@m":"x"}', 'pod-7.log', state);
+    assert.equal(state.logs[0].source, 'pod-7.log');
+});
+
+// ---------- parseAll ----------
+
+test('parseAll: dispatches per-chunk based on format detection', () => {
+    const result = parseAll([
+        { name: 'plain.log', content: '2024-01-15 10:30:45.123 +00:00 [INF] [t] hi' },
+        { name: 'json.log', content: '{"@t":"2024-01-15T10:30:46Z","@l":"Information","@m":"hi"}' }
+    ]);
+    assert.equal(result.logs.length, 2);
+    assert.equal(result.logs[0].format, 'format1');
+    assert.equal(result.logs[1].format, 'json');
+    assert.equal(result.logs[0].source, 'plain.log');
+    assert.equal(result.logs[1].source, 'json.log');
+});
+
+test('parseAll: returns Maps for collection state', () => {
+    const result = parseAll([
+        { name: 'a.log', content: '2024-01-15 10:30:45.123 +00:00 [INF] [t] Path: "/api/x"' }
+    ]);
+    assert.ok(result.apiCalls instanceof Map);
+    assert.ok(result.innerApiCalls instanceof Map);
+    assert.ok(result.apiByCorrelation instanceof Map);
+});
+
+test('parseAll: drops internal-only currentInnerCall from output', () => {
+    const result = parseAll([{ name: 'a.log', content: '' }]);
+    assert.ok(!('currentInnerCall' in result));
 });
