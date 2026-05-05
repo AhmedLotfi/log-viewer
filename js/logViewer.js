@@ -789,10 +789,14 @@ class LogViewer {
                             const rawPath = pathMatch[1].trim();
                             const normalizedPath = this.normalizeApiPath(rawPath);
 
-                            // Initialize API stats if not exists
+                            // Initialize API stats if not exists. `started` counts
+                            // observed APIGW request starts (denominator for success
+                            // rate); `count` counts matched Response events (sample
+                            // size for duration stats).
                             if (!this.apiCalls.has(normalizedPath)) {
                                 this.apiCalls.set(normalizedPath, {
                                     path: normalizedPath,
+                                    started: 0,
                                     count: 0,
                                     totalTime: 0,
                                     minTime: Infinity,
@@ -800,6 +804,7 @@ class LogViewer {
                                     errors: 0
                                 });
                             }
+                            this.apiCalls.get(normalizedPath).started++;
 
                             currentApiCall = {
                                 path: normalizedPath,
@@ -817,12 +822,14 @@ class LogViewer {
                                 currentApiCall.requestId === requestId ||
                                 (currentApiCall.correlationId === null && emptyBracketMatch))) {
                             const date = dateParts ? new Date(dateParts[1] + 'T' + dateParts[2]) : new Date();
-                            const duration = date - currentApiCall.startTime;
+                            // Clamp to >= 0 in case of clock skew or out-of-order timestamps.
+                            const duration = Math.max(0, date - currentApiCall.startTime);
                             const apiKey = currentApiCall.path; // Already normalized
 
                             if (!this.apiCalls.has(apiKey)) {
                                 this.apiCalls.set(apiKey, {
                                     path: apiKey,
+                                    started: 0,
                                     count: 0,
                                     totalTime: 0,
                                     minTime: Infinity,
@@ -851,7 +858,7 @@ class LogViewer {
                         } else if (endMatch && this.currentInnerCall &&
                             (this.currentInnerCall.threadId === threadId ||
                                 this.currentInnerCall.correlationId === correlationId)) {
-                            const duration = parseFloat(endMatch[1]);
+                            const duration = Math.max(0, parseFloat(endMatch[1]) || 0);
                             const status = endMatch[2];
                             const innerKey = this.currentInnerCall.path;
 
@@ -1592,8 +1599,9 @@ class LogViewer {
                     bVal = b.avgTime;
                     break;
                 case 'calls':
-                    aVal = a.stats.count;
-                    bVal = b.stats.count;
+                    // Sort by attempts (started); falls back to count for legacy entries.
+                    aVal = a.attempts != null ? a.attempts : a.stats.count;
+                    bVal = b.attempts != null ? b.attempts : b.stats.count;
                     break;
                 case 'maxTime':
                     aVal = a.stats.maxTime;
@@ -1603,13 +1611,18 @@ class LogViewer {
                     aVal = a.stats.minTime === Infinity ? 0 : a.stats.minTime;
                     bVal = b.stats.minTime === Infinity ? 0 : b.stats.minTime;
                     break;
-                case 'successRate':
-                    aVal = a.stats.count > 0 ? (a.stats.count - a.stats.errors) / a.stats.count : 1;
-                    bVal = b.stats.count > 0 ? (b.stats.count - b.stats.errors) / b.stats.count : 1;
+                case 'successRate': {
+                    const aAtt = a.attempts != null ? a.attempts : a.stats.count;
+                    const bAtt = b.attempts != null ? b.attempts : b.stats.count;
+                    const aErr = a.cappedErrors != null ? a.cappedErrors : a.stats.errors;
+                    const bErr = b.cappedErrors != null ? b.cappedErrors : b.stats.errors;
+                    aVal = aAtt > 0 ? (aAtt - aErr) / aAtt : 1;
+                    bVal = bAtt > 0 ? (bAtt - bErr) / bAtt : 1;
                     break;
+                }
                 case 'errors':
-                    aVal = a.stats.errors;
-                    bVal = b.stats.errors;
+                    aVal = a.cappedErrors != null ? a.cappedErrors : a.stats.errors;
+                    bVal = b.cappedErrors != null ? b.cappedErrors : b.stats.errors;
                     break;
                 default:
                     return 0;
@@ -2000,14 +2013,16 @@ class LogViewer {
     }
 
     _renderApiPerformance(spanMinutes) {
-        // Filter out endpoints with no completed responses (count: 0)
+        // Keep only endpoints that completed at least one response or saw a
+        // start. Without either there's nothing to display.
         const allEntries = Array.from(this.apiCalls.entries());
-        const validEntries = allEntries.filter(([, s]) => s.count > 0);
+        const validEntries = allEntries.filter(([, s]) => (s.started || 0) > 0 || s.count > 0);
         const incompleteCount = allEntries.length - validEntries.length;
 
         if (validEntries.length === 0) return '';
 
-        let totalCalls = 0;
+        let totalAttempts = 0;
+        let totalCompleted = 0;
         let totalTime = 0;
         let apiErrorCount = 0;
         let slowest = null;
@@ -2016,21 +2031,32 @@ class LogViewer {
         const endpoints = [];
 
         for (const [path, stats] of validEntries) {
-            const avgTime = stats.totalTime / stats.count;
-            const errorRate = (stats.errors / stats.count) * 100;
-            totalCalls += stats.count;
+            // Attempts (started) is the denominator for success/error rates;
+            // count (completed responses) is the sample for duration stats.
+            const attempts = (stats.started > 0 ? stats.started : stats.count) || 0;
+            const cappedErrors = Math.min(stats.errors, attempts);
+            const avgTime = stats.count > 0 ? stats.totalTime / stats.count : 0;
+            const errorRate = attempts > 0 ? (cappedErrors / attempts) * 100 : 0;
+            totalAttempts += attempts;
+            totalCompleted += stats.count;
             totalTime += stats.totalTime;
-            apiErrorCount += stats.errors;
-            if (!slowest || avgTime > slowest.avgTime) slowest = { path, avgTime };
-            if (!fastest || avgTime < fastest.avgTime) fastest = { path, avgTime };
+            apiErrorCount += cappedErrors;
+            if (stats.count > 0) {
+                if (!slowest || avgTime > slowest.avgTime) slowest = { path, avgTime };
+                if (!fastest || avgTime < fastest.avgTime) fastest = { path, avgTime };
+            }
             if (!highestErrorRate || errorRate > highestErrorRate.rate) highestErrorRate = { path, rate: errorRate };
-            endpoints.push({ path, stats, avgTime, errorRate });
+            endpoints.push({ path, stats, attempts, cappedErrors, avgTime, errorRate });
         }
 
-        const avgResponse = totalTime / totalCalls;
-        const successRate = ((totalCalls - apiErrorCount) / totalCalls) * 100;
-        const throughputPerMin = spanMinutes > 0 ? totalCalls / spanMinutes : 0;
-        const apiHealth = Math.max(0, Math.min(100, Math.round(100 - (apiErrorCount / totalCalls) * 200)));
+        const avgResponse = totalCompleted > 0 ? totalTime / totalCompleted : 0;
+        const successRate = totalAttempts > 0
+            ? Math.max(0, ((totalAttempts - apiErrorCount) / totalAttempts) * 100)
+            : 100;
+        const throughputPerMin = spanMinutes > 0 ? totalAttempts / spanMinutes : 0;
+        const apiHealth = totalAttempts > 0
+            ? Math.max(0, Math.min(100, Math.round(100 - (apiErrorCount / totalAttempts) * 200)))
+            : 100;
         const apiHealthLabel = this._healthLabel(apiHealth);
 
         const fastCount = endpoints.filter(e => e.avgTime < 100).length;
@@ -2048,16 +2074,16 @@ class LogViewer {
 
         // Metrics strip
         html += '<div class="metric-strip">';
-        html += this._metricCell('Total calls', this._formatNumber(totalCalls),
-            'All completed APIGW request/response pairs across the log span.');
+        html += this._metricCell('Total calls', this._formatNumber(totalAttempts),
+            'All APIGW request starts observed in the log span (the denominator for success rate).');
         html += this._metricCell('Success', successRate.toFixed(1) + '%',
-            'Share of completed calls without an attributed exception.');
+            'Share of attempts without an attributed exception. Errors are capped per endpoint at the attempt count so this stays in [0, 100].');
         html += this._metricCell('Avg response', this._formatMs(avgResponse) + ' ms',
-            'Mean of (response timestamp − request timestamp) across all calls.');
+            'Mean of (response timestamp − request timestamp) over completed call pairs only.');
         html += this._metricCell('Throughput', throughputPerMin.toFixed(1) + ' /min',
-            'Total calls divided by the wall-clock span between the first and last log entry.');
+            'Total attempts divided by the wall-clock span between the first and last log entry.');
         html += this._metricCell('Endpoints', this._formatNumber(endpoints.length),
-            'Distinct normalized paths that completed at least one request.');
+            'Distinct normalized paths that started or completed at least one request.');
         html += '</div>';
 
         // Inline distribution chip row
@@ -2094,23 +2120,28 @@ class LogViewer {
         html += '</tr></thead><tbody>';
 
         for (const e of sortedEndpoints) {
-            const { path, stats, avgTime, errorRate } = e;
+            const { path, stats, attempts, cappedErrors, avgTime, errorRate } = e;
             const statusClass = errorRate > 10 ? 'api-status-poor' : errorRate > 0 ? 'api-status-fair' : 'api-status-good';
-            const successCallRate = ((stats.count - stats.errors) / stats.count) * 100;
+            const successCallRate = attempts > 0
+                ? Math.max(0, ((attempts - cappedErrors) / attempts) * 100)
+                : 100;
             const rateClass = successCallRate >= 99 ? 'rate-good'
                 : successCallRate >= 90 ? 'rate-warn'
                 : 'rate-poor';
-            const errorsCellCls = stats.errors > 0 ? 'numeric rate-poor' : 'numeric rate-muted';
+            const errorsCellCls = cappedErrors > 0 ? 'numeric rate-poor' : 'numeric rate-muted';
+            const minDisplay = stats.count > 0 && stats.minTime !== Infinity ? stats.minTime : null;
+            const maxDisplay = stats.count > 0 ? stats.maxTime : null;
+            const avgDisplay = stats.count > 0 ? avgTime : null;
             const statusCodeStr = this._renderStatusCodes(stats.statusCodes, 3);
 
             html += '<tr class="api-row report-row-link ' + statusClass + '" data-filter="' + this.escape(path) + '" title="Click to filter logs by this endpoint">';
             html += '<td class="report-code">' + this.escape(path) + '</td>';
-            html += '<td class="numeric">' + this._formatNumber(stats.count) + '</td>';
-            html += '<td class="numeric">' + this._formatMs(avgTime) + '</td>';
-            html += '<td class="numeric">' + this._formatMs(stats.minTime === Infinity ? 0 : stats.minTime) + '</td>';
-            html += '<td class="numeric">' + this._formatMs(stats.maxTime) + '</td>';
+            html += '<td class="numeric" title="' + attempts + ' attempts, ' + stats.count + ' completed">' + this._formatNumber(attempts) + '</td>';
+            html += '<td class="numeric">' + this._formatMs(avgDisplay) + '</td>';
+            html += '<td class="numeric">' + this._formatMs(minDisplay) + '</td>';
+            html += '<td class="numeric">' + this._formatMs(maxDisplay) + '</td>';
             html += '<td class="numeric ' + rateClass + '">' + successCallRate.toFixed(1) + '%</td>';
-            html += '<td class="' + errorsCellCls + '">' + (stats.errors > 0 ? this._formatNumber(stats.errors) : '—') + '</td>';
+            html += '<td class="' + errorsCellCls + '">' + (cappedErrors > 0 ? this._formatNumber(cappedErrors) : '—') + '</td>';
             html += '<td class="status-codes">' + statusCodeStr + '</td>';
             html += '</tr>';
         }
@@ -2556,29 +2587,34 @@ class LogViewer {
         const warningRate = (byLevel.warning / this.logs.length) * 100;
         const logHealth = Math.max(0, Math.min(100, Math.round(100 - errorRate * 5 - warningRate * 1.5)));
 
-        // API performance (only completed call pairs).
+        // API performance (attempts is the rate denominator; completed is the
+        // sample for duration stats).
         const apiEndpoints = [];
-        let apiTotalCalls = 0, apiTotalTime = 0, apiTotalErrors = 0;
+        let apiTotalAttempts = 0, apiTotalCompleted = 0, apiTotalTime = 0, apiTotalErrors = 0;
         if (this.apiCalls) {
             for (const [path, stats] of this.apiCalls) {
-                if (stats.count === 0) continue;
-                apiTotalCalls += stats.count;
+                const attempts = (stats.started > 0 ? stats.started : stats.count) || 0;
+                if (attempts === 0 && stats.count === 0) continue;
+                const cappedErrors = Math.min(stats.errors, attempts);
+                apiTotalAttempts += attempts;
+                apiTotalCompleted += stats.count;
                 apiTotalTime += stats.totalTime;
-                apiTotalErrors += stats.errors;
+                apiTotalErrors += cappedErrors;
                 apiEndpoints.push({
                     path,
-                    calls: stats.count,
-                    avgMs: +(stats.totalTime / stats.count).toFixed(2),
-                    minMs: stats.minTime === Infinity ? 0 : +stats.minTime.toFixed(2),
-                    maxMs: +stats.maxTime.toFixed(2),
-                    errors: stats.errors,
-                    errorRate: +((stats.errors / stats.count) * 100).toFixed(2)
+                    attempts,
+                    completed: stats.count,
+                    avgMs: stats.count > 0 ? +(stats.totalTime / stats.count).toFixed(2) : null,
+                    minMs: stats.count > 0 && stats.minTime !== Infinity ? +stats.minTime.toFixed(2) : null,
+                    maxMs: stats.count > 0 ? +stats.maxTime.toFixed(2) : null,
+                    errors: cappedErrors,
+                    errorRate: attempts > 0 ? +((cappedErrors / attempts) * 100).toFixed(2) : 0
                 });
             }
-            apiEndpoints.sort((a, b) => b.calls - a.calls);
+            apiEndpoints.sort((a, b) => b.attempts - a.attempts);
         }
-        const apiHealth = apiTotalCalls > 0
-            ? Math.max(0, Math.min(100, Math.round(100 - (apiTotalErrors / apiTotalCalls) * 200)))
+        const apiHealth = apiTotalAttempts > 0
+            ? Math.max(0, Math.min(100, Math.round(100 - (apiTotalErrors / apiTotalAttempts) * 200)))
             : null;
 
         // Internal HTTP.
@@ -2634,11 +2670,12 @@ class LogViewer {
                 byLevel,
                 logHealth
             },
-            api: apiTotalCalls > 0 ? {
-                totalCalls: apiTotalCalls,
-                avgResponseMs: +(apiTotalTime / apiTotalCalls).toFixed(2),
-                successRate: +(((apiTotalCalls - apiTotalErrors) / apiTotalCalls) * 100).toFixed(2),
-                throughputPerMin: +(apiTotalCalls / spanMinutes).toFixed(2),
+            api: apiTotalAttempts > 0 ? {
+                totalAttempts: apiTotalAttempts,
+                totalCompleted: apiTotalCompleted,
+                avgResponseMs: apiTotalCompleted > 0 ? +(apiTotalTime / apiTotalCompleted).toFixed(2) : null,
+                successRate: +(Math.max(0, ((apiTotalAttempts - apiTotalErrors) / apiTotalAttempts) * 100)).toFixed(2),
+                throughputPerMin: spanMinutes > 0 ? +(apiTotalAttempts / spanMinutes).toFixed(2) : 0,
                 health: apiHealth,
                 endpoints: apiEndpoints
             } : null,
