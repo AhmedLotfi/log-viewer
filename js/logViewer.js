@@ -1148,7 +1148,13 @@ class LogViewer {
             this.logs.sort((a, b) => a.date - b.date);
             // Stamp a stable, post-sort id on each log so per-row UI state
             // (e.g. inline-expansion set) survives sort/filter/page changes.
-            for (let i = 0; i < this.logs.length; i++) this.logs[i].id = i;
+            // Also cache a `_searchable` string so applyFilters doesn't
+            // re-concatenate message + exception on every keystroke.
+            for (let i = 0; i < this.logs.length; i++) {
+                const log = this.logs[i];
+                log.id = i;
+                log._searchable = log.message + ' ' + (log.exception || '');
+            }
             this._attributeApiErrors();
             // Preserve the URL-loaded currentPage if still valid; otherwise clamp.
             const maxPage = Math.max(1, Math.ceil(this.logs.length / this.logsPerPage));
@@ -1325,7 +1331,11 @@ class LogViewer {
             if (this.dateTo && log.date > this.dateTo) return false;
             if (this.hourFilter !== null && log.date.getHours() !== this.hourFilter) return false;
             if (predicate) {
-                const txt = log.message + ' ' + log.exception;
+                // _searchable is stamped at parse time (message + exception);
+                // fall back to fresh concat for any log that pre-dates it.
+                const txt = log._searchable != null
+                    ? log._searchable
+                    : (log.message + ' ' + (log.exception || ''));
                 if (!predicate(txt)) return false;
             }
             return true;
@@ -1717,9 +1727,29 @@ class LogViewer {
         // Fast path: If no sort needed or empty logs
         if (!logs || logs.length === 0) return logs;
 
+        // Logs are stored in timestamp-asc order at parse time and
+        // Array.prototype.filter preserves order, so the filtered subset is
+        // already in timestamp asc. Skip the O(n log n) sort entirely for
+        // the default ordering — biggest hot-path win on large data sets.
+        if (this.sortColumn === 'timestamp' && this.sortDirection === 'asc') {
+            return logs;
+        }
+        // Timestamp desc is just a reverse — O(n) instead of O(n log n).
+        if (this.sortColumn === 'timestamp' && this.sortDirection === 'desc') {
+            if (this._sortCache
+                && this._sortCache.logs === logs
+                && this._sortCache.column === 'timestamp'
+                && this._sortCache.direction === 'desc') {
+                return this._sortCache.result;
+            }
+            const reversed = logs.slice().reverse();
+            this._sortCache = { logs, column: 'timestamp', direction: 'desc', result: reversed };
+            return reversed;
+        }
+
         // Cache: re-sort only when filteredLogs reference changes or sort
         // settings change. Pagination keeps the same reference, so flipping
-        // pages is now O(1) instead of O(n log n).
+        // pages is O(1) instead of O(n log n).
         if (this._sortCache
             && this._sortCache.logs === logs
             && this._sortCache.column === this.sortColumn
@@ -1881,13 +1911,53 @@ class LogViewer {
         return html;
     }
 
+    /**
+     * Toggle the inline detail row for a single log entry. Fast path —
+     * mutates the DOM in place rather than re-rendering the entire table,
+     * which is the dominant cost on big pages. Falls back to a full render
+     * if the row isn't in the current page.
+     */
     _toggleLogExpansion(id) {
-        if (this.expandedRows.has(id)) {
-            this.expandedRows.delete(id);
-        } else {
-            this.expandedRows.add(id);
+        const row = document.querySelector('.log-table tr.log-row[data-log-id="' + id + '"]');
+        if (!row) {
+            // Row not in DOM (e.g., we're on a different page); flip the set
+            // and let render() pick it up next time the page is shown.
+            if (this.expandedRows.has(id)) this.expandedRows.delete(id);
+            else this.expandedRows.add(id);
+            return;
         }
-        this.render();
+        const btn = row.querySelector('.row-expand');
+
+        if (this.expandedRows.has(id)) {
+            // Collapse.
+            this.expandedRows.delete(id);
+            const next = row.nextElementSibling;
+            if (next && next.classList.contains('log-row-detail')
+                && next.dataset.logId === String(id)) {
+                next.remove();
+            }
+            row.classList.remove('is-expanded');
+            if (btn) {
+                btn.classList.remove('expanded');
+                btn.setAttribute('aria-expanded', 'false');
+            }
+        } else {
+            // Expand. logs are id-indexed (id stamped post-sort in finalize).
+            this.expandedRows.add(id);
+            const log = this.logs[id];
+            if (!log) return;
+            const detail = document.createElement('tr');
+            detail.className = 'log-row-detail';
+            detail.dataset.logId = String(id);
+            const colspan = row.children.length;
+            detail.innerHTML = '<td colspan="' + colspan + '">' + this._renderLogDetail(log) + '</td>';
+            row.parentNode.insertBefore(detail, row.nextSibling);
+            row.classList.add('is-expanded');
+            if (btn) {
+                btn.classList.add('expanded');
+                btn.setAttribute('aria-expanded', 'true');
+            }
+        }
     }
 
     /**
@@ -2424,12 +2494,15 @@ class LogViewer {
     /**
      * Apply a text filter from a report cross-link, close the reports modal,
      * and surface the active filter in the search box so it can be cleared.
+     * Routes through _compileSearch so the predicate respects the current
+     * search-mode toggles (case / whole-word / regex).
      */
     filterByText(text) {
         if (!text) return;
-        this.searchQuery = text.toLowerCase();
+        this.searchQuery = text;
         const search = document.getElementById('searchBox');
         search.value = text;
+        this._compileSearch();
         this.currentPage = 1;
         this.applyFilters();
         this.closeReports();
