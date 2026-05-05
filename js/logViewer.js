@@ -26,6 +26,8 @@ class LogViewer {
         this._searchPredicate = null; // compiled (text) -> boolean, null when no query
         this._searchHighlightRegex = null; // RegExp for highlight() use
         this._searchInvalid = false; // last regex compile failed
+        this.expandedRows = new Set(); // log ids currently inline-expanded
+        this.collapseRepeats = false; // group adjacent identical messages
         this.STORAGE_KEY_THEME = 'logViewer.theme';
         this.STORAGE_KEY_VIEWS = 'logViewer.views';
         this.init();
@@ -62,6 +64,7 @@ class LogViewer {
         });
         document.getElementById('clearBtn').addEventListener('click', () => this.clear());
         document.getElementById('resetBtn').addEventListener('click', () => this.resetFilters());
+        document.getElementById('collapseBtn').addEventListener('click', () => this.toggleCollapseRepeats());
         document.getElementById('viewsBtn').addEventListener('click', () => this.toggleViewsPopover());
         document.getElementById('exportBtn').addEventListener('click', () => this.exportLogs());
         document.getElementById('clearDateBtn').addEventListener('click', () => this.clearDateFilter());
@@ -85,6 +88,11 @@ class LogViewer {
         document.getElementById('exportReportBtn').addEventListener('click', () => this.exportReport());
         document.getElementById('reportsModal').addEventListener('click', (e) => {
             if (e.target.id === 'reportsModal') this.closeReports();
+        });
+        document.getElementById('helpClose').addEventListener('click', () => this.closeHelp());
+        document.getElementById('helpCloseBtn').addEventListener('click', () => this.closeHelp());
+        document.getElementById('helpModal').addEventListener('click', (e) => {
+            if (e.target.id === 'helpModal') this.closeHelp();
         });
         document.querySelectorAll('.filter-btn').forEach(btn => {
             btn.addEventListener('click', () => this.toggleFilter(btn));
@@ -293,7 +301,8 @@ class LogViewer {
         };
         const isModalOpen = () =>
             document.getElementById('logModal').classList.contains('show') ||
-            document.getElementById('reportsModal').classList.contains('show');
+            document.getElementById('reportsModal').classList.contains('show') ||
+            document.getElementById('helpModal').classList.contains('show');
 
         document.addEventListener('keydown', (e) => {
             // Esc — close any open modal
@@ -305,6 +314,11 @@ class LogViewer {
                 }
                 if (document.getElementById('reportsModal').classList.contains('show')) {
                     this.closeReports();
+                    e.preventDefault();
+                    return;
+                }
+                if (document.getElementById('helpModal').classList.contains('show')) {
+                    this.closeHelp();
                     e.preventDefault();
                     return;
                 }
@@ -333,6 +347,13 @@ class LogViewer {
             if (e.key === '/') {
                 e.preventDefault();
                 document.getElementById('searchBox').focus();
+                return;
+            }
+
+            // "?" — show keyboard help
+            if (e.key === '?') {
+                e.preventDefault();
+                this.showHelp();
                 return;
             }
 
@@ -634,6 +655,7 @@ class LogViewer {
         this.currentInnerCall = null;
         this._sortCache = null;
         this._sourceColorIndex = null;
+        this.expandedRows = new Set();
     }
 
     /**
@@ -925,6 +947,9 @@ class LogViewer {
     _finalizeParseAndRender() {
         if (this.logs.length > 0) {
             this.logs.sort((a, b) => a.date - b.date);
+            // Stamp a stable, post-sort id on each log so per-row UI state
+            // (e.g. inline-expansion set) survives sort/filter/page changes.
+            for (let i = 0; i < this.logs.length; i++) this.logs[i].id = i;
             this._attributeApiErrors();
             // Preserve the URL-loaded currentPage if still valid; otherwise clamp.
             const maxPage = Math.max(1, Math.ceil(this.logs.length / this.logsPerPage));
@@ -1280,20 +1305,37 @@ class LogViewer {
             return;
         }
 
-        // Sort the filtered logs based on current sort settings
-        const logsToRender = this.getSortedLogs(this.filteredLogs);
+        // Sort the filtered logs based on current sort settings, then optionally
+        // collapse adjacent identical messages into representative rows.
+        const sortedLogs = this.getSortedLogs(this.filteredLogs);
+        const viewLogs = this._collapseRepeats(sortedLogs);
 
         const start = (this.currentPage - 1) * this.logsPerPage;
-        const end = Math.min(start + this.logsPerPage, logsToRender.length);
-        const page = logsToRender.slice(start, end);
+        const end = Math.min(start + this.logsPerPage, viewLogs.length);
+        const page = viewLogs.slice(start, end);
 
         // Render as table
         container.innerHTML = this.renderLogsTable(page);
 
-        // Add click handlers for table rows
-        container.querySelectorAll('.log-table tbody tr').forEach((el, i) => {
-            el.addEventListener('click', () => this.showModal(page[i]));
+        // Index page entries by id for row + chevron handlers.
+        const pageById = new Map(page.map(l => [l.id, l]));
+
+        // Row click → modal. Detail rows (.log-row-detail) and the chevron
+        // button stop propagation so they don't trigger this.
+        container.querySelectorAll('.log-table tbody tr.log-row').forEach((el) => {
             el.style.cursor = 'pointer';
+            const log = pageById.get(parseInt(el.dataset.logId, 10));
+            if (log) el.addEventListener('click', () => this.showModal(log));
+        });
+
+        // Chevron click → toggle inline expansion.
+        container.querySelectorAll('.log-table tbody tr.log-row .row-expand').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const tr = btn.closest('tr[data-log-id]');
+                if (!tr) return;
+                this._toggleLogExpansion(parseInt(tr.dataset.logId, 10));
+            });
         });
 
         // Add header sort handlers (mouse + keyboard)
@@ -1306,7 +1348,7 @@ class LogViewer {
             });
         });
 
-        const total = Math.ceil(logsToRender.length / this.logsPerPage);
+        const total = Math.ceil(viewLogs.length / this.logsPerPage);
         if (total > 1) {
             pagination.classList.remove('hidden');
             document.getElementById('pageInfo').textContent = 'Page ' + this.currentPage + ' of ' + total;
@@ -1318,7 +1360,9 @@ class LogViewer {
             pagination.classList.add('hidden');
         }
 
-        document.getElementById('visibleCount').textContent = logsToRender.length;
+        // Show pre-collapse count so "Visible" stays semantically the entry
+        // count, not the row count after collapsing.
+        document.getElementById('visibleCount').textContent = sortedLogs.length;
     }
 
     showModal(log) {
@@ -1507,7 +1551,11 @@ class LogViewer {
             return this.sortDirection === 'asc' ? ' ↑' : ' ↓';
         };
 
+        // Total column count for inline-detail colspan: expand + headers + (source).
+        const colspan = 1 + headerCells.length + (showSource ? 1 : 0);
+
         let html = '<table class="log-table"><thead><tr>';
+        html += '<th class="col-expand" aria-hidden="true"></th>';
 
         headerCells.forEach(cell => {
             const indicator = getSortIndicator(cell.column);
@@ -1525,19 +1573,109 @@ class LogViewer {
             const threadDisplay = log.correlationId ? log.correlationId.substring(0, 8) + '...' : log.threadId;
             const msgPreview = this.escape(log.message).substring(0, 100) + (log.message.length > 100 ? '...' : '');
             const levelClass = log.level;
+            const repeatBadge = log.groupCount > 1
+                ? ' <span class="repeat-badge" title="' + log.groupCount + ' adjacent identical entries">×' + log.groupCount + '</span>'
+                : '';
+            const expanded = this.expandedRows.has(log.id);
+            const expandIcon = expanded ? '▾' : '▸';
+            const rowCls = 'log-row ' + levelClass + (expanded ? ' is-expanded' : '');
 
-            html += '<tr class="log-row ' + levelClass + '">' +
+            html += '<tr class="' + rowCls + '" data-log-id="' + log.id + '">' +
+                '<td class="col-expand"><button type="button" class="row-expand' + (expanded ? ' expanded' : '') + '" aria-label="Toggle details" aria-expanded="' + expanded + '">' + expandIcon + '</button></td>' +
                 '<td class="col-timestamp">' + this.escape(log.timestamp) + '</td>' +
                 '<td class="col-level"><span class="level-badge ' + levelClass + '">' + log.level.toUpperCase() + '</span></td>' +
-                '<td class="col-message">' + this.highlight(msgPreview) + '</td>' +
+                '<td class="col-message">' + this.highlight(msgPreview) + repeatBadge + '</td>' +
                 '<td class="col-thread">' + this.escape(threadDisplay) + '</td>' +
                 '<td class="col-length">' + log.message.length + '</td>' +
                 (showSource ? '<td class="col-source">' + this._renderSourceChip(log.source) + '</td>' : '') +
                 '</tr>';
+
+            if (expanded) {
+                html += '<tr class="log-row-detail" data-log-id="' + log.id + '">' +
+                    '<td colspan="' + colspan + '">' +
+                    this._renderLogDetail(log) +
+                    '</td></tr>';
+            }
         });
 
         html += '</tbody></table>';
         return html;
+    }
+
+    /**
+     * Inline detail content for a log row — shown beneath the row when
+     * expanded. Tries to provide every piece of information the modal would
+     * without requiring a click round-trip.
+     */
+    _renderLogDetail(log) {
+        let html = '<div class="log-detail">';
+        html += '<dl class="log-detail__meta">';
+        html += '<div class="log-detail__meta-item"><dt>Timestamp</dt><dd>' + this.escape(log.timestamp) + '</dd></div>';
+        if (log.correlationId) {
+            html += '<div class="log-detail__meta-item"><dt>Correlation</dt><dd>' + this.escape(log.correlationId) + '</dd></div>';
+        }
+        if (log.threadId && log.threadId !== 'N/A') {
+            html += '<div class="log-detail__meta-item"><dt>Thread</dt><dd>' + this.escape(log.threadId) + '</dd></div>';
+        }
+        if (log.requestId) {
+            html += '<div class="log-detail__meta-item"><dt>Request</dt><dd>' + this.escape(log.requestId) + '</dd></div>';
+        }
+        if (log.source) {
+            html += '<div class="log-detail__meta-item"><dt>Source</dt><dd>' + this.escape(log.source) + '</dd></div>';
+        }
+        html += '<div class="log-detail__meta-item"><dt>Length</dt><dd>' + log.message.length + ' chars</dd></div>';
+        html += '</dl>';
+
+        html += '<div class="log-detail__message">' + this.highlight(this.escape(log.message)) + '</div>';
+
+        if (log.exception && log.exception.trim()) {
+            html += '<div class="log-detail__exception">' + this.highlight(this.escape(log.exception)) + '</div>';
+        }
+        html += '</div>';
+        return html;
+    }
+
+    _toggleLogExpansion(id) {
+        if (this.expandedRows.has(id)) {
+            this.expandedRows.delete(id);
+        } else {
+            this.expandedRows.add(id);
+        }
+        this.render();
+    }
+
+    /**
+     * Collapse adjacent log entries that share level + normalized message
+     * into a single representative carrying a `groupCount`. Runs after sort
+     * (so adjacency is honored on the user's chosen ordering) and before
+     * pagination. Originals aren't mutated — clones are returned.
+     */
+    _collapseRepeats(logs) {
+        if (!this.collapseRepeats || !logs || logs.length < 2) return logs;
+        const out = [];
+        let prev = null;
+        let prevKey = null;
+        for (const log of logs) {
+            const key = log.level + '\0' + LogParser.normalizeExceptionMessage(log.message || '');
+            if (prev && key === prevKey) {
+                prev.groupCount = (prev.groupCount || 1) + 1;
+            } else {
+                const clone = Object.assign({}, log, { groupCount: 1 });
+                out.push(clone);
+                prev = clone;
+                prevKey = key;
+            }
+        }
+        return out;
+    }
+
+    toggleCollapseRepeats() {
+        this.collapseRepeats = !this.collapseRepeats;
+        const btn = document.getElementById('collapseBtn');
+        btn.classList.toggle('active', this.collapseRepeats);
+        btn.setAttribute('aria-pressed', this.collapseRepeats ? 'true' : 'false');
+        this.currentPage = 1;
+        this.render();
     }
 
     /**
@@ -1710,6 +1848,7 @@ class LogViewer {
         this.exceptionResponses = null;
         this.apiByCorrelation = new Map();
         this.hourFilter = null;
+        this.expandedRows = new Set();
         document.getElementById('searchBox').value = '';
         document.getElementById('fileInput').value = '';
         document.getElementById('dateFrom').value = '';
@@ -1734,6 +1873,24 @@ class LogViewer {
 
     closeReports() {
         const modal = document.getElementById('reportsModal');
+        modal.classList.remove('show');
+        modal.setAttribute('aria-hidden', 'true');
+        if (this._lastFocus && typeof this._lastFocus.focus === 'function') {
+            this._lastFocus.focus();
+            this._lastFocus = null;
+        }
+    }
+
+    showHelp() {
+        this._lastFocus = document.activeElement;
+        const modal = document.getElementById('helpModal');
+        modal.classList.add('show');
+        modal.setAttribute('aria-hidden', 'false');
+        setTimeout(() => document.getElementById('helpClose').focus(), 0);
+    }
+
+    closeHelp() {
+        const modal = document.getElementById('helpModal');
         modal.classList.remove('show');
         modal.setAttribute('aria-hidden', 'true');
         if (this._lastFocus && typeof this._lastFocus.focus === 'function') {

@@ -57,6 +57,7 @@
                         <button type="button" class="btn btn-secondary" id="clearDateBtn">Clear</button>
                     </div>
                     <button type="button" class="btn btn-secondary" id="resetBtn" title="Reset all filters and search">Reset filters</button>
+                    <button type="button" class="btn btn-secondary" id="collapseBtn" title="Collapse adjacent identical entries" aria-pressed="false">Collapse repeats</button>
                     <div class="views-wrap">
                         <button type="button" class="btn btn-secondary" id="viewsBtn" title="Saved views" aria-haspopup="true" aria-expanded="false">Views</button>
                         <div class="views-popover hidden" id="viewsPopover" role="dialog" aria-label="Saved views"></div>
@@ -194,6 +195,31 @@
             <div class="modal-actions">
                 <button type="button" class="btn btn-success" id="exportReportBtn">Export Report</button>
                 <button type="button" class="btn btn-secondary" id="reportsCloseBtn">Close</button>
+            </div>
+        </div>
+    </div>
+    <div class="modal" id="helpModal" role="dialog" aria-modal="true" aria-labelledby="helpModalTitle" aria-hidden="true">
+        <div class="modal-content modal-help">
+            <div class="modal-header">
+                <h2 class="modal-title" id="helpModalTitle">Keyboard shortcuts</h2>
+                <button type="button" class="modal-close" id="helpClose" aria-label="Close">&times;</button>
+            </div>
+            <table class="help-table">
+                <tbody>
+                    <tr class="help-table__group"><th colspan="2">Search &amp; navigation</th></tr>
+                    <tr><td><kbd>/</kbd></td><td>Focus search</td></tr>
+                    <tr><td><kbd>Esc</kbd></td><td>Close modal, or clear search when focused</td></tr>
+                    <tr><td><kbd>?</kbd></td><td>Show this help</td></tr>
+                    <tr class="help-table__group"><th colspan="2">Pagination</th></tr>
+                    <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Previous / next page</td></tr>
+                    <tr><td><kbd>Home</kbd> <kbd>End</kbd></td><td>First / last page</td></tr>
+                    <tr class="help-table__group"><th colspan="2">Modals &amp; tables</th></tr>
+                    <tr><td><kbd>Tab</kbd> <kbd>Shift</kbd>+<kbd>Tab</kbd></td><td>Cycle focus inside an open modal</td></tr>
+                    <tr><td><kbd>Enter</kbd> <kbd>Space</kbd></td><td>Activate focused control (sortable headers, hour bars, expand chevrons)</td></tr>
+                </tbody>
+            </table>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" id="helpCloseBtn">Close</button>
             </div>
         </div>
     </div>
