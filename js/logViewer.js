@@ -637,6 +637,47 @@ class LogViewer {
     }
 
     /**
+     * Walk every error-level log with an exception trace and bump the
+     * `errors` counter on the matching apiCalls entry — exactly once per log.
+     * Tries multiple resolution strategies in order of confidence so we still
+     * count errors when the exception log lacks the originating correlation id.
+     */
+    _attributeApiErrors() {
+        if (!this.apiCalls || this.apiCalls.size === 0) return;
+        for (const log of this.logs) {
+            if (log.level !== 'error' || !log.exception) continue;
+            const apiPath = this._resolveApiForLog(log);
+            if (apiPath && this.apiCalls.has(apiPath)) {
+                this.apiCalls.get(apiPath).errors++;
+            }
+        }
+    }
+
+    _resolveApiForLog(log) {
+        // 1. Direct correlation/request id match against the index built during parse.
+        if (log.correlationId && this.apiByCorrelation.has(log.correlationId)) {
+            return this.apiByCorrelation.get(log.correlationId);
+        }
+        if (log.requestId && this.apiByCorrelation.has(log.requestId)) {
+            return this.apiByCorrelation.get(log.requestId);
+        }
+        // 2. Look for an HTTP: METHOD /path line in the exception trace.
+        const exc = log.exception || '';
+        const httpMatch = exc.match(/HTTP:\s*\w+\s+([^\s\n\r]+)/i);
+        if (httpMatch) {
+            const path = LogParser.normalizeApiPath(httpMatch[1].trim());
+            if (this.apiCalls.has(path)) return path;
+        }
+        // 3. Fall back to a Path: "..." marker, common in middleware traces.
+        const pathMatch = exc.match(/Path:\s*"?([^"\n\r]+?)"?(?:\s|$)/i);
+        if (pathMatch) {
+            const path = LogParser.normalizeApiPath(pathMatch[1].trim());
+            if (this.apiCalls.has(path)) return path;
+        }
+        return null;
+    }
+
+    /**
      * Parse one chunk of log content into this.logs (append). Caller is
      * responsible for resetting/finalizing. Assumes this._currentSource is
      * set so each log entry can be stamped with its file of origin.
@@ -862,37 +903,10 @@ class LogViewer {
                     }
                 } else if (current) {
                     current.exception += line + '\n';
-
-                    // Track exceptions when we see them
-                    if (current.level === 'error' && line.includes('Exception:')) {
-                        const exceptionMatch = line.match(/([^:.]+Exception):\s*(.+)/);
-                        if (exceptionMatch) {
-                            const [_, type, rawMessage] = exceptionMatch;
-                            const message = this.normalizeExceptionMessage(rawMessage);
-                            if (!this.exceptions.has(type)) {
-                                this.exceptions.set(type, {
-                                    count: 0,
-                                    messages: new Map()
-                                });
-                            }
-                            const exStats = this.exceptions.get(type);
-                            exStats.count++;
-
-                            const msgCount = exStats.messages.get(message) || 0;
-                            exStats.messages.set(message, msgCount + 1);
-
-                            // Attribute this exception to the API call that owned the
-                            // correlation/request id (built during parse), and bump that
-                            // API's error count. Previously this loop checked
-                            // stats.correlationId which is never stored on apiCalls
-                            // entries, so error counts never incremented.
-                            const apiPath = (current.correlationId && this.apiByCorrelation.get(current.correlationId))
-                                || (current.requestId && this.apiByCorrelation.get(current.requestId));
-                            if (apiPath && this.apiCalls.has(apiPath)) {
-                                this.apiCalls.get(apiPath).errors++;
-                            }
-                        }
-                    }
+                    // (Exception → API attribution happens once per error log in
+                    //  _attributeApiErrors after parsing, so we don't over-count
+                    //  multi-exception traces and can use info that may appear
+                    //  later in the trace, e.g. an HTTP: line.)
                 }
             }
 
@@ -904,6 +918,7 @@ class LogViewer {
     _finalizeParseAndRender() {
         if (this.logs.length > 0) {
             this.logs.sort((a, b) => a.date - b.date);
+            this._attributeApiErrors();
             // Preserve the URL-loaded currentPage if still valid; otherwise clamp.
             const maxPage = Math.max(1, Math.ceil(this.logs.length / this.logsPerPage));
             this.currentPage = Math.min(Math.max(1, this.currentPage || 1), maxPage);
@@ -1588,6 +1603,14 @@ class LogViewer {
                     aVal = a.stats.minTime === Infinity ? 0 : a.stats.minTime;
                     bVal = b.stats.minTime === Infinity ? 0 : b.stats.minTime;
                     break;
+                case 'successRate':
+                    aVal = a.stats.count > 0 ? (a.stats.count - a.stats.errors) / a.stats.count : 1;
+                    bVal = b.stats.count > 0 ? (b.stats.count - b.stats.errors) / b.stats.count : 1;
+                    break;
+                case 'errors':
+                    aVal = a.stats.errors;
+                    bVal = b.stats.errors;
+                    break;
                 default:
                     return 0;
             }
@@ -2025,11 +2048,16 @@ class LogViewer {
 
         // Metrics strip
         html += '<div class="metric-strip">';
-        html += this._metricCell('Total calls', this._formatNumber(totalCalls));
-        html += this._metricCell('Success', successRate.toFixed(1) + '%');
-        html += this._metricCell('Avg response', this._formatMs(avgResponse) + ' ms');
-        html += this._metricCell('Throughput', throughputPerMin.toFixed(1) + ' /min');
-        html += this._metricCell('Endpoints', this._formatNumber(endpoints.length));
+        html += this._metricCell('Total calls', this._formatNumber(totalCalls),
+            'All completed APIGW request/response pairs across the log span.');
+        html += this._metricCell('Success', successRate.toFixed(1) + '%',
+            'Share of completed calls without an attributed exception.');
+        html += this._metricCell('Avg response', this._formatMs(avgResponse) + ' ms',
+            'Mean of (response timestamp − request timestamp) across all calls.');
+        html += this._metricCell('Throughput', throughputPerMin.toFixed(1) + ' /min',
+            'Total calls divided by the wall-clock span between the first and last log entry.');
+        html += this._metricCell('Endpoints', this._formatNumber(endpoints.length),
+            'Distinct normalized paths that completed at least one request.');
         html += '</div>';
 
         // Inline distribution chip row
@@ -2060,7 +2088,8 @@ class LogViewer {
         html += '<th class="numeric' + sortCls('avgTime') + '" data-sort-column="avgTime">Avg' + sortInd('avgTime') + '</th>';
         html += '<th class="numeric' + sortCls('minTime') + '" data-sort-column="minTime">Min' + sortInd('minTime') + '</th>';
         html += '<th class="numeric' + sortCls('maxTime') + '" data-sort-column="maxTime">Max' + sortInd('maxTime') + '</th>';
-        html += '<th class="numeric">Success</th>';
+        html += '<th class="numeric' + sortCls('successRate') + '" data-sort-column="successRate">Success' + sortInd('successRate') + '</th>';
+        html += '<th class="numeric' + sortCls('errors') + '" data-sort-column="errors">Errors' + sortInd('errors') + '</th>';
         html += '<th>Status</th>';
         html += '</tr></thead><tbody>';
 
@@ -2068,6 +2097,10 @@ class LogViewer {
             const { path, stats, avgTime, errorRate } = e;
             const statusClass = errorRate > 10 ? 'api-status-poor' : errorRate > 0 ? 'api-status-fair' : 'api-status-good';
             const successCallRate = ((stats.count - stats.errors) / stats.count) * 100;
+            const rateClass = successCallRate >= 99 ? 'rate-good'
+                : successCallRate >= 90 ? 'rate-warn'
+                : 'rate-poor';
+            const errorsCellCls = stats.errors > 0 ? 'numeric rate-poor' : 'numeric rate-muted';
             const statusCodeStr = this._renderStatusCodes(stats.statusCodes, 3);
 
             html += '<tr class="api-row report-row-link ' + statusClass + '" data-filter="' + this.escape(path) + '" title="Click to filter logs by this endpoint">';
@@ -2076,7 +2109,8 @@ class LogViewer {
             html += '<td class="numeric">' + this._formatMs(avgTime) + '</td>';
             html += '<td class="numeric">' + this._formatMs(stats.minTime === Infinity ? 0 : stats.minTime) + '</td>';
             html += '<td class="numeric">' + this._formatMs(stats.maxTime) + '</td>';
-            html += '<td class="numeric">' + successCallRate.toFixed(1) + '%</td>';
+            html += '<td class="numeric ' + rateClass + '">' + successCallRate.toFixed(1) + '%</td>';
+            html += '<td class="' + errorsCellCls + '">' + (stats.errors > 0 ? this._formatNumber(stats.errors) : '—') + '</td>';
             html += '<td class="status-codes">' + statusCodeStr + '</td>';
             html += '</tr>';
         }
@@ -2128,11 +2162,16 @@ class LogViewer {
         html += '<p class="report-description">Outbound HTTP calls made within request handling.</p>';
 
         html += '<div class="metric-strip">';
-        html += this._metricCell('Total calls', this._formatNumber(totalCalls));
-        html += this._metricCell('Success', successRate.toFixed(1) + '%');
-        html += this._metricCell('Avg response', this._formatMs(avgResponse) + ' ms');
-        html += this._metricCell('Throughput', throughputPerMin.toFixed(1) + ' /min');
-        html += this._metricCell('Endpoints', this._formatNumber(endpoints.length));
+        html += this._metricCell('Total calls', this._formatNumber(totalCalls),
+            'Outbound HTTP calls observed inside request handling.');
+        html += this._metricCell('Success', successRate.toFixed(1) + '%',
+            'Share of internal calls returning a 2xx or 3xx status code.');
+        html += this._metricCell('Avg response', this._formatMs(avgResponse) + ' ms',
+            'Mean response time reported by the "End processing HTTP request after Xms" line.');
+        html += this._metricCell('Throughput', throughputPerMin.toFixed(1) + ' /min',
+            'Total internal calls divided by the wall-clock span of the logs.');
+        html += this._metricCell('Endpoints', this._formatNumber(endpoints.length),
+            'Distinct method+path pairs observed.');
         html += '</div>';
 
         html += '<dl class="report-insights">';
@@ -2155,6 +2194,9 @@ class LogViewer {
             const { path, stats, avgTime } = e;
             const minTime = stats.minTime === Infinity ? 0 : stats.minTime;
             const successCallRate = ((stats.count - stats.errors) / stats.count) * 100;
+            const rateClass = successCallRate >= 99 ? 'rate-good'
+                : successCallRate >= 90 ? 'rate-warn'
+                : 'rate-poor';
             const statusCodeStr = this._renderStatusCodes(stats.statusCodes, 3);
 
             html += '<tr class="internal-http-row report-row-link" data-filter="' + this.escape(path) + '" title="Click to filter logs by this call">';
@@ -2163,7 +2205,7 @@ class LogViewer {
             html += '<td class="numeric">' + this._formatMs(avgTime) + '</td>';
             html += '<td class="numeric">' + this._formatMs(minTime) + '</td>';
             html += '<td class="numeric">' + this._formatMs(stats.maxTime) + '</td>';
-            html += '<td class="numeric">' + successCallRate.toFixed(1) + '%</td>';
+            html += '<td class="numeric ' + rateClass + '">' + successCallRate.toFixed(1) + '%</td>';
             html += '<td class="status-codes">' + statusCodeStr + '</td>';
             html += '</tr>';
         }
@@ -2182,9 +2224,12 @@ class LogViewer {
         html += '<h3 class="report-title">Exceptions</h3>';
 
         html += '<div class="metric-strip">';
-        html += this._metricCell('Total', this._formatNumber(totalExceptions));
-        html += this._metricCell('Types', this._formatNumber(this.exceptionResponses.byType.size));
-        html += this._metricCell('Reasons', this._formatNumber(this.exceptionResponses.byReason.size));
+        html += this._metricCell('Total', this._formatNumber(totalExceptions),
+            'All error-level entries that contained a TYPE: or REASON: line.');
+        html += this._metricCell('Types', this._formatNumber(this.exceptionResponses.byType.size),
+            'Distinct exception type names (e.g. ApplicationException).');
+        html += this._metricCell('Reasons', this._formatNumber(this.exceptionResponses.byReason.size),
+            'Distinct REASON: messages after id/email/timestamp normalization.');
         html += '</div>';
 
         html += '<div class="exception-tabs">';
@@ -2365,9 +2410,11 @@ class LogViewer {
         return html;
     }
 
-    _metricCell(label, value) {
-        return '<div class="metric-strip__cell">' +
-            '<span class="metric-strip__label">' + label + '</span>' +
+    _metricCell(label, value, tip) {
+        const titleAttr = tip ? ' title="' + this.escape(tip) + '"' : '';
+        const labelCls = tip ? 'metric-strip__label has-tip' : 'metric-strip__label';
+        return '<div class="metric-strip__cell"' + titleAttr + '>' +
+            '<span class="' + labelCls + '">' + label + '</span>' +
             '<span class="metric-strip__value">' + value + '</span></div>';
     }
 

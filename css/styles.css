@@ -1214,6 +1214,12 @@ body.theme-blue .loader-overlay { background: rgba(8, 22, 37, 0.78); }
 .api-row.api-status-fair td:first-child { border-left: 2px solid var(--warning); padding-left: 12px; }
 .api-row.api-status-poor td:first-child { border-left: 2px solid var(--danger); padding-left: 12px; }
 
+/* Rate cells — color the success-rate value by threshold */
+.report-table td.rate-good { color: var(--success); font-weight: 600; }
+.report-table td.rate-warn { color: var(--warning); font-weight: 600; }
+.report-table td.rate-poor { color: var(--danger); font-weight: 700; }
+.report-table td.rate-muted { color: var(--text-subtle); }
+
 /* Utility */
 .hidden { display: none !important; }
 
