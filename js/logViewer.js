@@ -127,6 +127,119 @@ class LogViewer {
         }
         btn.classList.remove('hidden');
         btn.addEventListener('click', () => this.toggleTail());
+
+        // When the user scrolls to the bottom (via wheel, drag, or End key),
+        // dismiss the "N new" pill automatically.
+        const container = document.getElementById('logContainer');
+        if (container) {
+            container.addEventListener('scroll', () => {
+                if (this._tailNewCount && this._isScrolledNearBottom(container)) {
+                    this._setTailNewCount(0);
+                }
+            }, { passive: true });
+        }
+
+        // Offer to resume a previously-tailed file from IndexedDB.
+        this._restoreTailIfAny();
+    }
+
+    // ---------- IndexedDB helpers (for tail-handle persistence) ----------
+
+    _openIdb() {
+        if (this._idbPromise) return this._idbPromise;
+        if (typeof indexedDB === 'undefined') return Promise.reject(new Error('IndexedDB unavailable'));
+        this._idbPromise = new Promise((resolve, reject) => {
+            const req = indexedDB.open('logViewer', 1);
+            req.onerror = () => reject(req.error);
+            req.onsuccess = () => resolve(req.result);
+            req.onupgradeneeded = () => req.result.createObjectStore('handles');
+        });
+        return this._idbPromise;
+    }
+
+    async _idbPut(key, value) {
+        const db = await this._openIdb();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction('handles', 'readwrite');
+            tx.objectStore('handles').put(value, key);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        });
+    }
+
+    async _idbGet(key) {
+        const db = await this._openIdb();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction('handles', 'readonly');
+            const req = tx.objectStore('handles').get(key);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    async _idbDelete(key) {
+        const db = await this._openIdb();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction('handles', 'readwrite');
+            tx.objectStore('handles').delete(key);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        });
+    }
+
+    async _restoreTailIfAny() {
+        if (!('showOpenFilePicker' in window) || typeof indexedDB === 'undefined') return;
+        let handle = null;
+        try { handle = await this._idbGet('tailHandle'); } catch (e) { return; }
+        if (!handle || typeof handle.queryPermission !== 'function') return;
+        this._showResumeTailBanner(handle);
+    }
+
+    _showResumeTailBanner(handle) {
+        // Don't double-show.
+        if (document.querySelector('.tail-resume-banner')) return;
+        const banner = document.createElement('div');
+        banner.className = 'tail-resume-banner';
+        banner.innerHTML =
+            '<span class="tail-resume-banner__text">Resume tailing <strong></strong>?</span>'
+            + '<button type="button" class="btn btn-primary tail-resume-banner__yes">Resume</button>'
+            + '<button type="button" class="btn btn-secondary tail-resume-banner__no">Dismiss</button>';
+        banner.querySelector('strong').textContent = handle.name;
+        document.body.appendChild(banner);
+
+        banner.querySelector('.tail-resume-banner__yes').addEventListener('click', async () => {
+            banner.remove();
+            await this._resumeTail(handle);
+        });
+        banner.querySelector('.tail-resume-banner__no').addEventListener('click', () => {
+            banner.remove();
+            this._idbDelete('tailHandle').catch(() => {});
+        });
+    }
+
+    async _resumeTail(handle) {
+        try {
+            const perm = await handle.requestPermission({ mode: 'read' });
+            if (perm !== 'granted') {
+                this.showToast('Permission denied');
+                return;
+            }
+            this._tailHandle = handle;
+            this._tailLastSize = -1;
+            this._tailLastModified = -1;
+            const btn = document.getElementById('tailBtn');
+            if (btn) {
+                btn.classList.add('active');
+                btn.textContent = 'Stop tail';
+            }
+            this.showToast('Resumed tailing: ' + handle.name);
+            await this._tailPoll();
+            this._tailInterval = setInterval(() => this._tailPoll(), 2000);
+        } catch (e) {
+            console.error('Resume tail failed:', e);
+            this.showToast('Resume failed: ' + (e.message || e.name));
+            this._idbDelete('tailHandle').catch(() => {});
+        }
     }
 
     async toggleTail() {
@@ -146,6 +259,8 @@ class LogViewer {
             btn.classList.add('active');
             btn.textContent = 'Stop tail';
             this.showToast('Tailing: ' + handle.name);
+            // Persist the handle so a refresh can offer to resume.
+            this._idbPut('tailHandle', handle).catch(e => console.warn('IDB save failed:', e));
             await this._tailPoll();
             this._tailInterval = setInterval(() => this._tailPoll(), 2000);
         } catch (e) {
@@ -166,6 +281,8 @@ class LogViewer {
             btn.classList.remove('active');
             btn.textContent = 'Tail';
         }
+        this._setTailNewCount(0);
+        this._idbDelete('tailHandle').catch(() => {});
         this.showToast('Tail stopped');
     }
 
@@ -176,18 +293,73 @@ class LogViewer {
             if (file.size === this._tailLastSize && file.lastModified === this._tailLastModified) {
                 return; // no change since last poll
             }
+
+            // Capture scroll state before re-render so we can decide whether to
+            // sticky-scroll or surface a "N new" pill.
+            const container = document.getElementById('logContainer');
+            const wasAtBottom = container ? this._isScrolledNearBottom(container) : true;
+            const prevLogCount = this.logs.length;
+
             this._tailLastSize = file.size;
             this._tailLastModified = file.lastModified;
             const text = await file.text();
             this.loadedFiles = 1;
             this.loadedFileNames = [file.name];
             this.parseLogs(text);
+
+            const newCount = Math.max(0, this.logs.length - prevLogCount);
+            if (newCount > 0) {
+                if (wasAtBottom) {
+                    this._scrollLogsToBottom();
+                    this._setTailNewCount(0);
+                } else {
+                    this._setTailNewCount((this._tailNewCount || 0) + newCount);
+                }
+            }
         } catch (e) {
-            // File moved, deleted, or permission revoked.
             console.error('Tail poll error:', e);
             this.stopTail();
             this.showToast('Tail stopped: file unavailable');
         }
+    }
+
+    _isScrolledNearBottom(el, threshold) {
+        if (!el) return true;
+        const t = typeof threshold === 'number' ? threshold : 60;
+        return (el.scrollTop + el.clientHeight) >= (el.scrollHeight - t);
+    }
+
+    _scrollLogsToBottom() {
+        const container = document.getElementById('logContainer');
+        if (container) container.scrollTop = container.scrollHeight;
+    }
+
+    /**
+     * Show or hide the floating "N new" pill. n=0 hides it.
+     * Lazy-creates the DOM element on first use.
+     */
+    _setTailNewCount(n) {
+        this._tailNewCount = Math.max(0, n | 0);
+        let pill = document.getElementById('tailNewPill');
+        if (this._tailNewCount === 0) {
+            if (pill) pill.classList.add('hidden');
+            return;
+        }
+        if (!pill) {
+            pill = document.createElement('button');
+            pill.id = 'tailNewPill';
+            pill.className = 'tail-new-pill';
+            pill.type = 'button';
+            pill.addEventListener('click', () => {
+                this._scrollLogsToBottom();
+                this._setTailNewCount(0);
+            });
+            document.body.appendChild(pill);
+        }
+        pill.innerHTML = '<span class="tail-new-pill__arrow" aria-hidden="true">↓</span> '
+            + (this._tailNewCount > 99 ? '99+' : this._tailNewCount) + ' new';
+        pill.title = this._tailNewCount + ' new entries since you last reached the bottom — click to jump';
+        pill.classList.remove('hidden');
     }
 
     attachDragAndDrop() {
@@ -434,6 +606,8 @@ class LogViewer {
             dateFrom: document.getElementById('dateFrom').value || null,
             dateTo: document.getElementById('dateTo').value || null,
             hour: this.hourFilter,
+            sort: { column: this.sortColumn, direction: this.sortDirection },
+            collapse: !!this.collapseRepeats,
             savedAt: new Date().toISOString()
         };
         const existing = views.findIndex(v => v.name === name);
@@ -480,6 +654,25 @@ class LogViewer {
         if (v.dateTo) this.setDateTo(v.dateTo); else this.dateTo = null;
 
         this.hourFilter = (typeof v.hour === 'number') ? v.hour : null;
+
+        // Sort state — default to timestamp asc if the saved view predates this field.
+        if (v.sort && v.sort.column) {
+            this.sortColumn = v.sort.column;
+            this.sortDirection = v.sort.direction === 'desc' ? 'desc' : 'asc';
+            this._sortCache = null;
+        }
+
+        // Collapse-repeats toggle.
+        const wantCollapse = !!v.collapse;
+        if (wantCollapse !== this.collapseRepeats) {
+            this.collapseRepeats = wantCollapse;
+            const cb = document.getElementById('collapseBtn');
+            if (cb) {
+                cb.classList.toggle('active', wantCollapse);
+                cb.setAttribute('aria-pressed', wantCollapse ? 'true' : 'false');
+            }
+        }
+
         this.currentPage = 1;
         this.applyFilters();
         this.closeViewsPopover();
@@ -579,6 +772,17 @@ class LogViewer {
         const files = Array.from(event.target.files);
         if (!files.length) return;
 
+        // For a single very large file, stream-read + incrementally parse so
+        // we don't materialize the entire file as one in-memory string.
+        const STREAMING_THRESHOLD = 10 * 1024 * 1024; // 10 MB
+        if (files.length === 1
+            && typeof files[0].stream === 'function'
+            && typeof TextDecoderStream !== 'undefined'
+            && files[0].size > STREAMING_THRESHOLD) {
+            this._loadAndStreamParse(files[0]);
+            return;
+        }
+
         setTimeout(() => {
             this.showLoader('Reading ' + files.length + ' file(s)...');
         }, 0);
@@ -612,6 +816,92 @@ class LogViewer {
         });
     }
 
+    /**
+     * Streaming load + parse for very large single files. Reads the file as a
+     * decoded text stream, hands chunks to the parser at line boundaries, and
+     * yields to the event loop between chunks so the UI stays responsive.
+     * Uses the carry-over (Into + flush) parser variants so an in-flight log
+     * entry survives the chunk boundary.
+     */
+    async _loadAndStreamParse(file) {
+        this.loadedFiles = 1;
+        this.loadedFileNames = [file.name];
+        this.showLoader('Streaming ' + file.name + '…');
+        const subtext = document.getElementById('loaderSubtext');
+
+        const state = {
+            logs: [],
+            apiCalls: new Map(),
+            innerApiCalls: new Map(),
+            apiByCorrelation: new Map(),
+            currentInnerCall: null,
+            _currentLog: null,
+            _currentApiCall: null
+        };
+
+        try {
+            const decoded = file.stream().pipeThrough(new TextDecoderStream());
+            const reader = decoded.getReader();
+            let buffer = '';
+            let isJsonLine = null; // null = not yet detected
+            let chunkIdx = 0;
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buffer += value;
+
+                // Detect format from the first complete line.
+                if (isJsonLine === null) {
+                    const nl = buffer.indexOf('\n');
+                    if (nl >= 0) {
+                        isJsonLine = LogParser.detectJsonLines(buffer.slice(0, nl) + '\n');
+                    }
+                }
+
+                // Split at the last newline; everything before is processable.
+                const lastNl = buffer.lastIndexOf('\n');
+                if (lastNl < 0) continue;
+                const chunk = buffer.slice(0, lastNl + 1);
+                buffer = buffer.slice(lastNl + 1);
+
+                if (isJsonLine === true) {
+                    LogParser.parseJsonChunk(chunk, file.name, state);
+                } else {
+                    LogParser.parseTextChunkInto(chunk, file.name, state);
+                }
+
+                if (++chunkIdx % 5 === 0) {
+                    if (subtext) subtext.textContent = 'Parsed ' + this._formatNumber(state.logs.length) + ' entries…';
+                    await new Promise(r => setTimeout(r, 0));
+                }
+            }
+
+            // Trailing buffer (file with no final newline).
+            if (buffer) {
+                if (isJsonLine === true) {
+                    LogParser.parseJsonChunk(buffer, file.name, state);
+                } else {
+                    LogParser.parseTextChunkInto(buffer, file.name, state);
+                }
+            }
+            LogParser.flushPartialChunk(state);
+
+            this._resetParseState();
+            this.logs = state.logs;
+            this.apiCalls = state.apiCalls;
+            this.innerApiCalls = state.innerApiCalls;
+            this.apiByCorrelation = state.apiByCorrelation;
+            this._finalizeParseAndRender();
+            this.hideLoader();
+            this.showToast('Loaded ' + file.name + ' (streamed)');
+        } catch (e) {
+            console.error('Streaming load failed:', e);
+            this.hideLoader();
+            this.showToast('Streaming load failed: ' + (e.message || e.name));
+        }
+    }
+
     /** Single-file entry. Source defaults to loadedFileNames[0]. */
     parseLogs(content) {
         this._resetParseState();
@@ -631,19 +921,97 @@ class LogViewer {
      * source name stamped on every produced log entry. Per-request state
      * (currentApiCall, currentInnerCall) is reset between chunks so an
      * unfinished request in one file isn't matched in another.
+     *
+     * When a Web Worker is available, parsing is dispatched off the main
+     * thread to keep the UI responsive on large files. Falls back to a
+     * synchronous in-thread parse if the worker can't be created (e.g.
+     * `file://` origin in some browsers).
      */
     parseFiles(files, contents) {
+        const payload = files.map((f, i) => ({ name: f.name, content: contents[i] }));
+        const worker = this._tryGetParserWorker();
+        if (worker) {
+            this._parseFilesViaWorker(worker, payload);
+            return;
+        }
+        this._parseFilesSync(payload);
+    }
+
+    _parseFilesSync(payload) {
         this._resetParseState();
-        for (let i = 0; i < files.length; i++) {
-            this._currentSource = files[i].name;
+        for (const f of payload) {
+            this._currentSource = f.name;
             try {
-                this._parseChunk(contents[i]);
+                this._parseChunk(f.content);
             } catch (error) {
-                console.error('Error parsing chunk ' + files[i].name + ':', error);
+                console.error('Error parsing chunk ' + f.name + ':', error);
             }
         }
         this._currentSource = null;
         this._finalizeParseAndRender();
+    }
+
+    _tryGetParserWorker() {
+        if (this._workerDisabled) return null;
+        if (this._parserWorker) return this._parserWorker;
+        if (typeof Worker === 'undefined') return null;
+        try {
+            this._parserWorker = new Worker('js/parserWorker.js');
+            this._parserWorker.addEventListener('error', (e) => {
+                // Worker failed (e.g. file:// CORS) — disable and fall back.
+                console.warn('Parser worker error, falling back to main-thread parse:', e.message);
+                this._workerDisabled = true;
+                try { this._parserWorker.terminate(); } catch (err) { /* ignore */ }
+                this._parserWorker = null;
+            });
+            return this._parserWorker;
+        } catch (e) {
+            console.warn('Could not create parser worker:', e.message);
+            this._workerDisabled = true;
+            return null;
+        }
+    }
+
+    _parseFilesViaWorker(worker, files) {
+        const subtext = document.getElementById('loaderSubtext');
+        if (subtext) subtext.textContent = 'Parsing in background…';
+        const handler = (e) => {
+            const msg = e.data || {};
+            if (msg.type === 'done') {
+                worker.removeEventListener('message', handler);
+                const s = msg.state;
+                this._resetParseState();
+                this.logs = s.logs || [];
+                this.apiCalls = s.apiCalls || new Map();
+                this.innerApiCalls = s.innerApiCalls || new Map();
+                this.apiByCorrelation = s.apiByCorrelation || new Map();
+                this._finalizeParseAndRender();
+            } else if (msg.type === 'error') {
+                worker.removeEventListener('message', handler);
+                console.error('Worker parse error:', msg.message);
+                this.showToast('Parse failed: ' + msg.message);
+                // Fall back synchronously so the user still sees something.
+                this._workerDisabled = true;
+                this._parseFilesSync(files);
+            }
+        };
+        worker.addEventListener('message', handler);
+        worker.postMessage({ type: 'parse', files });
+    }
+
+    /**
+     * Parse JSON-line content (one object per line). Each parsed line becomes
+     * a log entry stamped with the current source. API/inner-HTTP tracking is
+     * skipped — those rely on structural cues from the bracketed text format.
+     */
+    _parseJsonChunk(content) {
+        const lines = content.split(/\r?\n/);
+        for (const raw of lines) {
+            const log = LogParser.parseJsonLine(raw);
+            if (!log) continue;
+            log.source = this._currentSource || null;
+            this.logs.push(log);
+        }
     }
 
     _resetParseState() {
@@ -676,12 +1044,14 @@ class LogViewer {
     }
 
     _resolveApiForLog(log) {
-        // 1. Direct correlation/request id match against the index built during parse.
-        if (log.correlationId && this.apiByCorrelation.has(log.correlationId)) {
-            return this.apiByCorrelation.get(log.correlationId);
+        // 1. Direct correlation/request id match against the per-source index
+        //    built during parse (prefix avoids cross-file collisions).
+        const prefix = (log.source || '') + '|';
+        if (log.correlationId && this.apiByCorrelation.has(prefix + log.correlationId)) {
+            return this.apiByCorrelation.get(prefix + log.correlationId);
         }
-        if (log.requestId && this.apiByCorrelation.has(log.requestId)) {
-            return this.apiByCorrelation.get(log.requestId);
+        if (log.requestId && this.apiByCorrelation.has(prefix + log.requestId)) {
+            return this.apiByCorrelation.get(prefix + log.requestId);
         }
         // 2. Look for an HTTP: METHOD /path line in the exception trace.
         const exc = log.exception || '';
@@ -701,247 +1071,19 @@ class LogViewer {
 
     /**
      * Parse one chunk of log content into this.logs (append). Caller is
-     * responsible for resetting/finalizing. Assumes this._currentSource is
-     * set so each log entry can be stamped with its file of origin.
+     * responsible for resetting/finalizing. The parser logic lives in
+     * js/parser.js so the same code path runs in the parser Worker.
+     *
+     * `this` is passed as the state object — its field shapes (logs,
+     * apiCalls, innerApiCalls, apiByCorrelation, currentInnerCall) match
+     * what the pure parser expects.
      */
     _parseChunk(content) {
-        const lines = content.split('\n');
-        // Per-chunk request-tracking state. Resetting between chunks keeps
-        // a request started in file A from matching a response in file B.
-        let current = null;
-        let currentApiCall = null;
-        this.currentInnerCall = null;
-
-            for (let i = 0; i < lines.length; i++) {
-                const line = lines[i];
-                if (!line.trim()) continue;
-
-                const tsMatch = line.match(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+[+-]\d{2}:\d{2})/);
-
-                if (tsMatch) {
-                    const ts = tsMatch[1];
-                    const after = line.substring(ts.length).trim();
-
-                    let logMatch = null;
-                    let format = null;
-                    let threadId = null;
-                    let message = null;
-                    let level = null;
-                    let correlationId = null;
-                    let requestId = null;
-                    let emptyBracketMatch = null;
-
-                    // Check for empty brackets first as it's used in multiple places
-                    emptyBracketMatch = after.match(/\[""\]/);
-
-                    // Check for both formats
-                    logMatch = after.match(/^\[([A-Z]{3})\]\s+\[([^\]]+)\]\s+(.*)$/);
-                    if (logMatch) {
-                        format = 'format1';
-                        level = logMatch[1];
-                        threadId = logMatch[2];
-                        message = logMatch[3];
-
-                        // Handle CrlId format in thread ID
-                        const crlIdMatch = threadId.match(/^CrlId\]:APIGW:([^:]+):(\d+)$/);
-                        if (crlIdMatch) {
-                            correlationId = crlIdMatch[1];
-                            requestId = crlIdMatch[2];
-                            message = message.replace(/^APIGW:[^:]+:\d+,\s*/, ''); // Remove any duplicate APIGW prefix in message
-                        }
-                    } else {
-                        logMatch = after.match(/^\[([A-Z]{3})\]\s+(.*)$/);
-                        if (logMatch) {
-                            format = 'format2';
-                            level = logMatch[1];
-                            message = logMatch[2];
-                            threadId = 'N/A';
-                        }
-                    }
-
-                    if (logMatch) {
-                        if (current) {
-                            this.logs.push(current);
-                        }
-
-                        const levelMap = {
-                            'DBG': 'debug',
-                            'INF': 'information',
-                            'WRN': 'warning',
-                            'ERR': 'error',
-                            'VRB': 'debug',
-                            'FTL': 'error'
-                        };
-
-                        const levelKey = level.toUpperCase();
-                        const dateParts = ts.match(/(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2}\.\d{3})/);
-
-                        // First check for CrlId format in threadId
-                        const crlIdMatch = threadId ? threadId.match(/^CrlId\]:APIGW:([^:]+):(\d+)$/) : null;
-                        if (crlIdMatch) {
-                            correlationId = crlIdMatch[1];
-                            requestId = crlIdMatch[2];
-                            message = message.replace(/^APIGW:[^:]+:\d+,\s*/, '');
-                        } else {
-                            // If not CrlId format, check for APIGW in message
-                            const apigwMatch = message.match(/\["APIGW:([^:]+):([^\]]+)"\]/);
-                            if (apigwMatch) {
-                                correlationId = apigwMatch[1];
-                                requestId = apigwMatch[2];
-                                message = message.replace(/\["APIGW:[^"]+"\],\s*/, '');
-                            } else if (emptyBracketMatch) {
-                                message = message.replace(/\[""\],\s*/, '');
-                            } else {
-                                const correlationMatch = message.match(/^([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\s+-\s+(.*)$/i);
-                                if (correlationMatch) {
-                                    correlationId = correlationMatch[1];
-                                    message = correlationMatch[2];
-                                }
-                            }
-                        }
-
-                        // Handle API paths and tracking
-                        const pathMatch = message.match(/Path:\s*"?([^"]+)"?/);
-                        const startMatch = message.match(/Start processing HTTP request "([^"]+)" "([^"]+)"/);
-                        const endMatch = message.match(/End processing HTTP request after ([\d.]+)ms - (\d+)/);
-
-                        // Track original API calls
-                        if (pathMatch) {  // Simplified condition to track all paths
-                            const date = dateParts ? new Date(dateParts[1] + 'T' + dateParts[2]) : new Date();
-                            const rawPath = pathMatch[1].trim();
-                            const normalizedPath = this.normalizeApiPath(rawPath);
-
-                            // Initialize API stats if not exists. `started` counts
-                            // observed APIGW request starts (denominator for success
-                            // rate); `count` counts matched Response events (sample
-                            // size for duration stats).
-                            if (!this.apiCalls.has(normalizedPath)) {
-                                this.apiCalls.set(normalizedPath, {
-                                    path: normalizedPath,
-                                    started: 0,
-                                    count: 0,
-                                    totalTime: 0,
-                                    minTime: Infinity,
-                                    maxTime: 0,
-                                    errors: 0
-                                });
-                            }
-                            this.apiCalls.get(normalizedPath).started++;
-
-                            currentApiCall = {
-                                path: normalizedPath,
-                                startTime: date,
-                                correlationId,
-                                requestId
-                            };
-                            // Index API path by correlation/request IDs so we can attribute
-                            // exceptions back to the API that handled the request.
-                            if (correlationId) this.apiByCorrelation.set(correlationId, normalizedPath);
-                            if (requestId) this.apiByCorrelation.set(requestId, normalizedPath);
-                        } else if ((message.includes('Response') || message.toLowerCase().includes('response')) &&
-                            currentApiCall &&
-                            (currentApiCall.correlationId === correlationId ||
-                                currentApiCall.requestId === requestId ||
-                                (currentApiCall.correlationId === null && emptyBracketMatch))) {
-                            const date = dateParts ? new Date(dateParts[1] + 'T' + dateParts[2]) : new Date();
-                            // Clamp to >= 0 in case of clock skew or out-of-order timestamps.
-                            const duration = Math.max(0, date - currentApiCall.startTime);
-                            const apiKey = currentApiCall.path; // Already normalized
-
-                            if (!this.apiCalls.has(apiKey)) {
-                                this.apiCalls.set(apiKey, {
-                                    path: apiKey,
-                                    started: 0,
-                                    count: 0,
-                                    totalTime: 0,
-                                    minTime: Infinity,
-                                    maxTime: 0,
-                                    errors: 0
-                                });
-                            }
-                            const stats = this.apiCalls.get(apiKey);
-                            stats.count++;
-                            stats.totalTime += duration;
-                            stats.minTime = Math.min(stats.minTime, duration);
-                            stats.maxTime = Math.max(stats.maxTime, duration);
-                            currentApiCall = null;
-                        }
-
-                        // Track inner HTTP calls
-                        if (startMatch) {
-                            const method = startMatch[1];
-                            const url = startMatch[2];
-                            const urlPath = new URL(url).pathname;
-                            this.currentInnerCall = {
-                                path: `${method} ${urlPath}`,
-                                threadId,
-                                correlationId
-                            };
-                        } else if (endMatch && this.currentInnerCall &&
-                            (this.currentInnerCall.threadId === threadId ||
-                                this.currentInnerCall.correlationId === correlationId)) {
-                            const duration = Math.max(0, parseFloat(endMatch[1]) || 0);
-                            const status = endMatch[2];
-                            const innerKey = this.currentInnerCall.path;
-
-                            if (!this.innerApiCalls) {
-                                this.innerApiCalls = new Map();
-                            }
-
-                            if (!this.innerApiCalls.has(innerKey)) {
-                                this.innerApiCalls.set(innerKey, {
-                                    path: innerKey,
-                                    count: 0,
-                                    totalTime: 0,
-                                    minTime: Infinity,
-                                    maxTime: 0,
-                                    errors: 0,
-                                    statusCodes: new Map()
-                                });
-                            }
-
-                            const stats = this.innerApiCalls.get(innerKey);
-                            stats.count++;
-                            stats.totalTime += duration;
-                            stats.minTime = Math.min(stats.minTime, duration);
-                            stats.maxTime = Math.max(stats.maxTime, duration);
-
-                            const statusCount = stats.statusCodes.get(status) || 0;
-                            stats.statusCodes.set(status, statusCount + 1);
-
-                            // Treat only 4xx and 5xx as errors. 3xx redirects are not failures.
-                            if (status.startsWith('4') || status.startsWith('5')) {
-                                stats.errors++;
-                            }
-
-                            this.currentInnerCall = null;
-                        }
-
-                        current = {
-                            timestamp: ts,
-                            date: dateParts ? new Date(dateParts[1] + 'T' + dateParts[2]) : new Date(),
-                            level: levelMap[levelKey] || 'information',
-                            threadId: threadId,
-                            message: message,
-                            exception: '',
-                            format: format,
-                            correlationId: correlationId,
-                            requestId: requestId,
-                            source: this._currentSource || null
-                        };
-                    }
-                } else if (current) {
-                    current.exception += line + '\n';
-                    // (Exception → API attribution happens once per error log in
-                    //  _attributeApiErrors after parsing, so we don't over-count
-                    //  multi-exception traces and can use info that may appear
-                    //  later in the trace, e.g. an HTTP: line.)
-                }
-            }
-
-            if (current) {
-                this.logs.push(current);
-            }
+        if (LogParser.detectJsonLines(content)) {
+            LogParser.parseJsonChunk(content, this._currentSource, this);
+        } else {
+            LogParser.parseTextChunk(content, this._currentSource, this);
+        }
     }
 
     _finalizeParseAndRender() {
@@ -1574,7 +1716,9 @@ class LogViewer {
             const msgPreview = this.escape(log.message).substring(0, 100) + (log.message.length > 100 ? '...' : '');
             const levelClass = log.level;
             const repeatBadge = log.groupCount > 1
-                ? ' <span class="repeat-badge" title="' + log.groupCount + ' adjacent identical entries">×' + log.groupCount + '</span>'
+                ? ' <span class="repeat-badge" title="' + log.groupCount + ' adjacent identical entries'
+                    + (log.groupSpanMs ? ' over ' + this._formatSpan(log.groupSpanMs) : '')
+                    + '">×' + (log.groupCount > 99 ? '99+' : log.groupCount) + '</span>'
                 : '';
             const expanded = this.expandedRows.has(log.id);
             const expandIcon = expanded ? '▾' : '▸';
@@ -1655,15 +1799,24 @@ class LogViewer {
         const out = [];
         let prev = null;
         let prevKey = null;
+        let groupLastDate = null;
         for (const log of logs) {
             const key = log.level + '\0' + LogParser.normalizeExceptionMessage(log.message || '');
             if (prev && key === prevKey) {
                 prev.groupCount = (prev.groupCount || 1) + 1;
+                // Track the time span between the first and last entry in the
+                // group so the badge tooltip can hint when collapsed entries
+                // are actually hours apart.
+                if (log.date && prev.date) {
+                    prev.groupSpanMs = Math.max(0, log.date - prev.date);
+                    groupLastDate = log.date;
+                }
             } else {
-                const clone = Object.assign({}, log, { groupCount: 1 });
+                const clone = Object.assign({}, log, { groupCount: 1, groupSpanMs: 0 });
                 out.push(clone);
                 prev = clone;
                 prevKey = key;
+                groupLastDate = log.date;
             }
         }
         return out;
@@ -1941,6 +2094,11 @@ class LogViewer {
         // Top meta strip
         html += this._renderMetaStrip(firstDate, lastDate, spanMs, total, logHealth, logHealthLabel);
 
+        // 0. Per-file comparison (only when 2+ files were loaded)
+        if (this.loadedFileNames && this.loadedFileNames.length > 1) {
+            html += this._renderComparisonSection();
+        }
+
         // I. Logs distribution
         html += this._renderLogDistribution(levelCounts, total, spanHours);
 
@@ -2125,6 +2283,103 @@ class LogViewer {
     _formatNumber(n)     { return LogParser.formatNumber(n); }
     _formatMs(ms)        { return LogParser.formatMs(ms); }
 
+    /**
+     * Per-file comparison table — only emitted when more than one file was
+     * loaded. Shows side-by-side counts for the most diff-worthy metrics:
+     * entries, by-level, exception count, log-health, span, and API attempts.
+     */
+    _renderComparisonSection() {
+        const files = this.loadedFileNames || [];
+        if (files.length < 2) return '';
+
+        // Bucket logs by source.
+        const bySource = new Map();
+        for (const f of files) {
+            bySource.set(f, {
+                logs: 0,
+                levels: { debug: 0, information: 0, warning: 0, error: 0 },
+                exceptions: 0,
+                first: null,
+                last: null
+            });
+        }
+        for (const log of this.logs) {
+            const b = bySource.get(log.source);
+            if (!b) continue;
+            b.logs++;
+            b.levels[log.level] = (b.levels[log.level] || 0) + 1;
+            if (log.level === 'error' && log.exception && log.exception.trim()) b.exceptions++;
+            if (!b.first || log.date < b.first) b.first = log.date;
+            if (!b.last || log.date > b.last) b.last = log.date;
+        }
+
+        // Per-file API attempts (read source-prefixed apiByCorrelation entries).
+        const apiAttempts = new Map(files.map(f => [f, 0]));
+        if (this.apiByCorrelation) {
+            for (const key of this.apiByCorrelation.keys()) {
+                const sep = key.indexOf('|');
+                if (sep < 0) continue;
+                const src = key.slice(0, sep);
+                if (apiAttempts.has(src)) apiAttempts.set(src, apiAttempts.get(src) + 1);
+            }
+        }
+
+        const fmt = this._formatNumber.bind(this);
+
+        let html = '<section class="report-section">';
+        html += '<h3 class="report-title">Files compared</h3>';
+        html += '<p class="report-description">Side-by-side counts per loaded file.</p>';
+        html += '<table class="report-table compare-table">';
+
+        // Header row: file names as colored chips.
+        html += '<thead><tr><th class="compare-table__metric">Metric</th>';
+        for (const f of files) {
+            html += '<th>' + this._renderSourceChip(f) + '</th>';
+        }
+        html += '</tr></thead><tbody>';
+
+        const row = (label, cellFn) => {
+            html += '<tr><th class="compare-table__metric">' + this.escape(label) + '</th>';
+            for (const f of files) html += cellFn(f);
+            html += '</tr>';
+        };
+
+        row('Entries', f => '<td class="numeric">' + fmt(bySource.get(f).logs) + '</td>');
+        row('Errors', f => {
+            const n = bySource.get(f).levels.error;
+            const cls = n > 0 ? 'rate-poor' : 'rate-muted';
+            return '<td class="numeric ' + cls + '">' + fmt(n) + '</td>';
+        });
+        row('Warnings', f => {
+            const n = bySource.get(f).levels.warning;
+            const cls = n > 0 ? 'rate-warn' : 'rate-muted';
+            return '<td class="numeric ' + cls + '">' + fmt(n) + '</td>';
+        });
+        row('Exceptions', f => {
+            const n = bySource.get(f).exceptions;
+            const cls = n > 0 ? 'rate-poor' : 'rate-muted';
+            return '<td class="numeric ' + cls + '">' + fmt(n) + '</td>';
+        });
+        row('API attempts', f => '<td class="numeric">' + fmt(apiAttempts.get(f) || 0) + '</td>');
+        row('Log health', f => {
+            const b = bySource.get(f);
+            const tot = Math.max(1, b.logs);
+            const errR = (b.levels.error / tot) * 100;
+            const warnR = (b.levels.warning / tot) * 100;
+            const h = Math.max(0, Math.min(100, Math.round(100 - errR * 5 - warnR * 1.5)));
+            return '<td class="numeric"><span class="health-pill ' + this._healthClass(h) + '">' + h + ' <em>' + this._healthLabel(h) + '</em></span></td>';
+        });
+        row('Span', f => {
+            const b = bySource.get(f);
+            const ms = (b.first && b.last) ? Math.max(0, b.last - b.first) : 0;
+            return '<td class="numeric">' + (ms > 0 ? this._formatSpan(ms) : '—') + '</td>';
+        });
+
+        html += '</tbody></table>';
+        html += '</section>';
+        return html;
+    }
+
     _renderMetaStrip(firstDate, lastDate, spanMs, total, health, healthLabel) {
         const fmt = (d) => d.toISOString().slice(0, 16).replace('T', ' ');
         let html = '<div class="report-meta">';
@@ -2291,9 +2546,12 @@ class LogViewer {
             const avgDisplay = stats.count > 0 ? avgTime : null;
             const statusCodeStr = this._renderStatusCodes(stats.statusCodes, 3);
 
+            const incomplete = attempts > stats.count;
+            const callsCell = this._formatNumber(attempts) + (incomplete ? ' <span class="incomplete-marker" aria-label="some attempts had no matching response">✱</span>' : '');
+
             html += '<tr class="api-row report-row-link ' + statusClass + '" data-filter="' + this.escape(path) + '" title="Click to filter logs by this endpoint">';
             html += '<td class="report-code">' + this.escape(path) + '</td>';
-            html += '<td class="numeric" title="' + attempts + ' attempts, ' + stats.count + ' completed">' + this._formatNumber(attempts) + '</td>';
+            html += '<td class="numeric" title="' + attempts + ' attempts, ' + stats.count + ' completed">' + callsCell + '</td>';
             html += '<td class="numeric">' + this._formatMs(avgDisplay) + '</td>';
             html += '<td class="numeric">' + this._formatMs(minDisplay) + '</td>';
             html += '<td class="numeric">' + this._formatMs(maxDisplay) + '</td>';

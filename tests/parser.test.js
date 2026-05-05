@@ -14,7 +14,10 @@ const {
     formatSpan,
     formatNumber,
     healthLabel,
-    healthClass
+    healthClass,
+    detectJsonLines,
+    mapJsonLevel,
+    parseJsonLine
 } = require('../js/parser.js');
 
 // ---------- normalizeApiPath ----------
@@ -233,4 +236,106 @@ test('healthClass: thresholds', () => {
     assert.equal(healthClass(80), 'health-good');
     assert.equal(healthClass(60), 'health-fair');
     assert.equal(healthClass(20), 'health-critical');
+});
+
+// ---------- detectJsonLines ----------
+
+test('detectJsonLines: bracketed text returns false', () => {
+    assert.equal(detectJsonLines('2024-01-15 10:30:45.123 +00:00 [INF] [thread-1] hello'), false);
+});
+
+test('detectJsonLines: CLEF first line returns true', () => {
+    const sample = '{"@t":"2024-01-15T10:30:45.123Z","@l":"Information","@m":"hi"}\n{"@t":"..."}';
+    assert.equal(detectJsonLines(sample), true);
+});
+
+test('detectJsonLines: empty string returns false', () => {
+    assert.equal(detectJsonLines(''), false);
+    assert.equal(detectJsonLines(null), false);
+});
+
+test('detectJsonLines: plain "{" without parseable JSON returns false', () => {
+    assert.equal(detectJsonLines('{ this is not json }'), false);
+});
+
+test('detectJsonLines: tolerates BOM + leading whitespace', () => {
+    assert.equal(detectJsonLines('﻿\n  {"@t":"2024-01-15T10:30:45Z","@m":"x"}'), true);
+});
+
+// ---------- mapJsonLevel ----------
+
+test('mapJsonLevel: Serilog CLEF abbreviations', () => {
+    assert.equal(mapJsonLevel('Verbose'), 'debug');
+    assert.equal(mapJsonLevel('Debug'), 'debug');
+    assert.equal(mapJsonLevel('Information'), 'information');
+    assert.equal(mapJsonLevel('Warning'), 'warning');
+    assert.equal(mapJsonLevel('Error'), 'error');
+    assert.equal(mapJsonLevel('Fatal'), 'error');
+});
+
+test('mapJsonLevel: short codes', () => {
+    assert.equal(mapJsonLevel('DBG'), 'debug');
+    assert.equal(mapJsonLevel('INF'), 'information');
+    assert.equal(mapJsonLevel('WRN'), 'warning');
+    assert.equal(mapJsonLevel('ERR'), 'error');
+});
+
+test('mapJsonLevel: generic syslog terms', () => {
+    assert.equal(mapJsonLevel('trace'), 'debug');
+    assert.equal(mapJsonLevel('info'), 'information');
+    assert.equal(mapJsonLevel('warn'), 'warning');
+    assert.equal(mapJsonLevel('critical'), 'error');
+});
+
+test('mapJsonLevel: unknown defaults to information', () => {
+    assert.equal(mapJsonLevel('notice'), 'information');
+    assert.equal(mapJsonLevel(null), 'information');
+});
+
+// ---------- parseJsonLine ----------
+
+test('parseJsonLine: Serilog CLEF', () => {
+    const log = parseJsonLine('{"@t":"2024-01-15T10:30:45.123Z","@l":"Warning","@m":"slow query","@x":"stack","TraceId":"abc"}');
+    assert.equal(log.level, 'warning');
+    assert.equal(log.message, 'slow query');
+    assert.equal(log.exception, 'stack');
+    assert.equal(log.correlationId, 'abc');
+    assert.equal(log.format, 'json');
+    assert.ok(log.date instanceof Date && !isNaN(log.date.getTime()));
+});
+
+test('parseJsonLine: generic JSON shape', () => {
+    const log = parseJsonLine('{"timestamp":"2024-01-15T10:30:45Z","level":"ERROR","message":"boom","correlation_id":"xyz"}');
+    assert.equal(log.level, 'error');
+    assert.equal(log.message, 'boom');
+    assert.equal(log.correlationId, 'xyz');
+});
+
+test('parseJsonLine: missing timestamp returns null', () => {
+    assert.equal(parseJsonLine('{"@l":"Information","@m":"hi"}'), null);
+});
+
+test('parseJsonLine: invalid JSON returns null', () => {
+    assert.equal(parseJsonLine('not json'), null);
+    assert.equal(parseJsonLine(''), null);
+    assert.equal(parseJsonLine('   '), null);
+});
+
+test('parseJsonLine: array (not object) returns null', () => {
+    assert.equal(parseJsonLine('[{"@t":"2024-01-15T10:30:45Z"}]'), null);
+});
+
+test('parseJsonLine: invalid timestamp returns null', () => {
+    assert.equal(parseJsonLine('{"@t":"not-a-date","@m":"x"}'), null);
+});
+
+test('parseJsonLine: defaults level to information when absent', () => {
+    const log = parseJsonLine('{"@t":"2024-01-15T10:30:45Z","@m":"x"}');
+    assert.equal(log.level, 'information');
+});
+
+test('parseJsonLine: numeric ids stringified', () => {
+    const log = parseJsonLine('{"@t":"2024-01-15T10:30:45Z","@m":"x","correlationId":12345,"ThreadId":7}');
+    assert.equal(log.correlationId, '12345');
+    assert.equal(log.threadId, '7');
 });
